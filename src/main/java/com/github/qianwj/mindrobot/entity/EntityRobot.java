@@ -17,6 +17,7 @@ import com.github.qianwj.mindrobot.api.IRobotCore;
 import com.github.qianwj.mindrobot.container.RobotGuiHandler;
 import com.github.qianwj.mindrobot.damage.RobotDamage;
 import com.github.qianwj.mindrobot.inventory.RobotInventory;
+import com.github.qianwj.mindrobot.item.ItemFrequencyChip;
 import com.github.qianwj.mindrobot.link.ChannelData;
 import com.github.qianwj.mindrobot.link.RobotLinkManager;
 import com.github.qianwj.mindrobot.link.RobotRegistry;
@@ -62,7 +63,8 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
 
     /**
      * Channel snapshot of this robot (D5): the public number, or the private name plus password, and the
-     * public/private mode. {@code null} until an assembly table (P3) or {@code /mindrobot spawn} assigns one.
+     * public/private mode. It is a cache of what the chip slot currently holds (R21 / R26) - never written from
+     * anywhere else - and {@code null} when no chip is installed, which is what makes the machine unreachable.
      */
     private ChannelData channelData;
     /** Forced true on every load from NBT, so the first tick after a restart re-registers the robot (R27). */
@@ -332,20 +334,46 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
         return channelData;
     }
 
-    public void setChannelData(ChannelData channelData) {
-        this.channelData = channelData;
+    /**
+     * Re-derives the channel from the chip slot and publishes it at once (R21 / R26, D5).
+     * <p>
+     * The chip slot is the <b>only</b> source of the machine channel: an empty slot means "answers on nothing",
+     * and pulling the chip makes the robot unreachable through every path that reads
+     * {@link #getChannelData()} - the registry row is dropped, so a private wake finds nothing, and a public
+     * helmet no longer matches. Nothing else in the mod writes the field.
+     * <p>
+     * The registry is refreshed immediately instead of on the next scheduled report, because the wake-up path
+     * of R27/R28 reads the row: a chip swap would otherwise leave the old channel registered for up to a
+     * second. The immediate write only happens for a robot that is already part of the world; a freshly built
+     * entity reports on its first tick instead.
+     */
+    public void syncChannelFromChip() {
+        if (worldObj == null || worldObj.isRemote) {
+            return;
+        }
+        channelData = ItemFrequencyChip.getChannelData(robotInventory.getChip());
         // A chip installed after spawning must be visible in the registry on the next tick, not one second
         // later (R26 vs R27: the row only exists for a robot that answers on a channel).
         positionReportPending = true;
+        if (!addedToChunk) {
+            return;
+        }
+        RobotRegistry registry = RobotRegistry.get(worldObj);
+        if (registry == null) {
+            return;
+        }
+        // Report right away instead of waiting for the scheduled one: the wake-up path reads this row (R27).
+        positionReportPending = false;
+        // report() drops the row of a robot with no channel, which is exactly what R26 wants.
+        registry.report(this);
     }
 
     @Override
     public void writeEntityToNBT(NBTTagCompound tag) {
         super.writeEntityToNBT(tag);
         tag.setInteger(NBT_STRUCTURAL_INTEGRITY, structuralIntegrity);
-        if (channelData != null) {
-            channelData.writeToNBT(tag);
-        }
+        // The channel is deliberately not written: it is derived from the chip slot on load, so the save file
+        // can never disagree with the chip that is actually installed.
         NBTTagCompound inventoryTag = new NBTTagCompound();
         robotInventory.writeToNBT(inventoryTag);
         tag.setTag(NBT_INVENTORY, inventoryTag);
@@ -357,10 +385,14 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
         structuralIntegrity = tag.hasKey(NBT_STRUCTURAL_INTEGRITY)
             ? MathHelper.clamp_int(tag.getInteger(NBT_STRUCTURAL_INTEGRITY), 1, getMaxStructuralIntegrity())
             : getMaxStructuralIntegrity();
-        channelData = ChannelData.readFromNBT(tag);
         if (tag.hasKey(NBT_INVENTORY)) {
             robotInventory.readFromNBT(tag.getCompoundTag(NBT_INVENTORY));
         }
+        // The chip inside the restored storage decides the channel; an empty slot means "answers on nothing".
+        // This call cannot reach the registry yet (the entity is not in a chunk during NBT loading), it only
+        // fills the field, and the first tick publishes the row.
+        channelData = null;
+        syncChannelFromChip();
         // The registry row is rewritten on the first tick after a load, so a restart never leaves the old
         // coordinate (R27) and the helmet mirror can be refreshed from a fresh row.
         positionReportPending = true;

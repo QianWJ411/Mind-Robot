@@ -217,16 +217,21 @@ public class RobotInventory implements IInventory {
         if (stack == null) {
             return null;
         }
+        ItemStack split;
         if (stack.stackSize <= count) {
             slots[index] = null;
             markDirty();
-            return stack;
+            split = stack;
+        } else {
+            split = stack.splitStack(count);
+            if (stack.stackSize <= 0) {
+                slots[index] = null;
+            }
+            markDirty();
         }
-        ItemStack split = stack.splitStack(count);
-        if (stack.stackSize <= 0) {
-            slots[index] = null;
+        if (index == CHIP_SLOT) {
+            syncChannel();
         }
-        markDirty();
         return split;
     }
 
@@ -246,6 +251,24 @@ public class RobotInventory implements IInventory {
             stack.stackSize = getInventoryStackLimit();
         }
         markDirty();
+        if (index == CHIP_SLOT) {
+            syncChannel();
+        }
+    }
+
+    /**
+     * Re-derives the robot channel from the chip slot (R21 / R26).
+     * <p>
+     * Every write to the chip slot - placing, replacing, taking the chip out, and the shift-click and drag
+     * paths that end in {@link #setInventorySlotContents} or {@link #decrStackSize} - funnels through here, so
+     * the chip is the single source of the channel: an empty slot always means "cannot be connected". Client
+     * side copies are ignored by the entity, and the chip slot calls this again on every slot change, which is
+     * idempotent.
+     */
+    public void syncChannel() {
+        if (robot != null) {
+            robot.syncChannelFromChip();
+        }
     }
 
     @Override

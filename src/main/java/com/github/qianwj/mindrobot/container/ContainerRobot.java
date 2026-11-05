@@ -114,6 +114,17 @@ public class ContainerRobot extends Container {
     }
 
     /**
+     * Closing republishes the channel one last time (R21 / R26): a player can take the chip onto the cursor or
+     * place it in the very last click before pressing the close key, and the machine channel must follow that
+     * click. The super call returns whatever is still on the cursor to the player, so the chip is never lost.
+     */
+    @Override
+    public void onContainerClosed(EntityPlayer playerIn) {
+        super.onContainerClosed(playerIn);
+        robotInventory.syncChannel();
+    }
+
+    /**
      * Shift-click routing. Robot slots and the two special slots feed the player inventory; the player
      * inventory feeds the chip slot, the battery slot or the backpack and toolbar, in that order.
      */

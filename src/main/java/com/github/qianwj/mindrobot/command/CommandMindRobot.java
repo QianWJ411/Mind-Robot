@@ -12,9 +12,11 @@ import net.minecraft.util.MathHelper;
 import net.minecraft.world.World;
 
 import com.github.qianwj.mindrobot.entity.EntityRobot;
+import com.github.qianwj.mindrobot.inventory.RobotInventory;
 import com.github.qianwj.mindrobot.item.ItemFrequencyChip;
 import com.github.qianwj.mindrobot.link.ChannelData;
 import com.github.qianwj.mindrobot.link.ChannelMode;
+import com.github.qianwj.mindrobot.registry.ModContent;
 
 /**
  * {@code /mindrobot} debug and setup command (permission level 2).
@@ -131,7 +133,13 @@ public class CommandMindRobot extends CommandBase {
         }
 
         EntityRobot robot = new EntityRobot(world);
-        robot.setChannelData(channelData);
+        // R21 / R26: the chip slot is the single source of the machine channel, so the command installs a real
+        // configured chip instead of writing a channel field next to it. The robot derives its channel from
+        // that chip and reports it on its first tick.
+        ItemStack chip = new ItemStack(ModContent.frequencyChip);
+        ItemFrequencyChip.setChannelData(chip, channelData);
+        robot.getInventory()
+            .setInventorySlotContents(RobotInventory.CHIP_SLOT, chip);
         robot.setLocationAndAngles(spawnX, player.posY, spawnZ, player.rotationYaw, 0.0F);
         if (!world.spawnEntityInWorld(robot)) {
             throw new CommandException("commands.mindrobot.spawn.failed");
