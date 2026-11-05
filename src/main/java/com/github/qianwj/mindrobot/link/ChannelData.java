@@ -14,7 +14,7 @@ import net.minecraft.nbt.NBTTagCompound;
  * </ul>
  * The password is stored <b>in plain text</b> on purpose. This is a local co-op remote control, not an
  * authentication service: a server operator who has to recover a forgotten password must be able to repair
- * the save by editing {@code <world>/data/mindrobot_robots.dat} (and the chip / helmet NBT for the same
+ * the save by editing {@code <world>/mindrobot/robots.json} (and the chip / helmet NBT for the same
  * values) by hand.
  * Hashes would make that impossible. The trade off is that anyone able to read the world files can read the
  * password, which is accepted for this mod. For the same reason nothing here ever prints the password: see

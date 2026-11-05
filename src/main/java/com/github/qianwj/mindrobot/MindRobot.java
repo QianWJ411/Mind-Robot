@@ -3,12 +3,15 @@ package com.github.qianwj.mindrobot;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.github.qianwj.mindrobot.link.RobotRegistry;
+
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.SidedProxy;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
+import cpw.mods.fml.common.event.FMLServerStoppingEvent;
 
 @Mod(modid = MindRobot.MODID, version = Tags.VERSION, name = "Mind-Robot", acceptedMinecraftVersions = "[1.7.10]")
 public class MindRobot {
@@ -44,5 +47,15 @@ public class MindRobot {
     // register server commands in this event handler (Remove if not needed)
     public void serverStarting(FMLServerStartingEvent event) {
         proxy.serverStarting(event);
+    }
+
+    /**
+     * D11: the server stopping hook is a lifecycle event and is only delivered to {@code @Mod.EventHandler}
+     * methods (it is not posted on the Forge event bus), so the final registry flush lives here. The world unload
+     * bus event is the second safety net.
+     */
+    @Mod.EventHandler
+    public void serverStopping(FMLServerStoppingEvent event) {
+        RobotRegistry.flushAll();
     }
 }
