@@ -5,6 +5,7 @@ import net.minecraftforge.event.world.WorldEvent;
 
 import com.github.qianwj.mindrobot.link.DisconnectReason;
 import com.github.qianwj.mindrobot.link.RobotLinkManager;
+import com.github.qianwj.mindrobot.network.ChipConfigHandler;
 import com.github.qianwj.mindrobot.network.ModNetwork;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -21,6 +22,7 @@ public class CommonEventHandler {
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase == TickEvent.Phase.START) {
             RobotLinkManager.processPendingRequests();
+            ChipConfigHandler.processPendingRequests();
         }
     }
 

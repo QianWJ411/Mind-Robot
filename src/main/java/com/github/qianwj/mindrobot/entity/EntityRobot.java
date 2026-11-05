@@ -1,7 +1,5 @@
 package com.github.qianwj.mindrobot.entity;
 
-import java.util.UUID;
-
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.SharedMonsterAttributes;
 import net.minecraft.item.ItemStack;
@@ -12,6 +10,7 @@ import net.minecraft.world.World;
 
 import com.github.qianwj.mindrobot.api.IRobotCore;
 import com.github.qianwj.mindrobot.damage.RobotDamage;
+import com.github.qianwj.mindrobot.link.ChannelData;
 import com.github.qianwj.mindrobot.link.RobotLinkManager;
 
 /**
@@ -27,7 +26,6 @@ import com.github.qianwj.mindrobot.link.RobotLinkManager;
  */
 public class EntityRobot extends EntityLivingBase implements IRobotCore {
 
-    private static final String NBT_OWNER = "OwnerUUID";
     private static final String NBT_STRUCTURAL_INTEGRITY = "StructuralIntegrity";
 
     /** Display only health value. Never used as durability. */
@@ -40,8 +38,11 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
     private static final int EQUIPMENT_SLOTS = 5;
     private static final float DESTROY_EFFECT_HEIGHT_OFFSET = 0.5F;
 
-    /** Player that currently drives this robot, or null when idle. */
-    private UUID ownerId;
+    /**
+     * Channel snapshot of this robot (D5): the channel number, the private/public mode and the owner that
+     * configured it. {@code null} until an assembly table (P3) or {@code /mindrobot spawn} assigns one.
+     */
+    private ChannelData channelData;
     /** Real durability of the chassis. */
     private int structuralIntegrity = DEFAULT_MAX_STRUCTURAL_INTEGRITY;
 
@@ -165,20 +166,21 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
         destroyRobot();
     }
 
-    public UUID getOwnerId() {
-        return ownerId;
+    /** Channel snapshot this robot answers on, or {@code null} when it has none (D5). */
+    public ChannelData getChannelData() {
+        return channelData;
     }
 
-    public void setOwnerId(UUID ownerId) {
-        this.ownerId = ownerId;
+    public void setChannelData(ChannelData channelData) {
+        this.channelData = channelData;
     }
 
     @Override
     public void writeEntityToNBT(NBTTagCompound tag) {
         super.writeEntityToNBT(tag);
         tag.setInteger(NBT_STRUCTURAL_INTEGRITY, structuralIntegrity);
-        if (ownerId != null) {
-            tag.setString(NBT_OWNER, ownerId.toString());
+        if (channelData != null) {
+            channelData.writeToNBT(tag);
         }
     }
 
@@ -188,14 +190,6 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
         structuralIntegrity = tag.hasKey(NBT_STRUCTURAL_INTEGRITY)
             ? MathHelper.clamp_int(tag.getInteger(NBT_STRUCTURAL_INTEGRITY), 1, getMaxStructuralIntegrity())
             : getMaxStructuralIntegrity();
-        if (tag.hasKey(NBT_OWNER)) {
-            try {
-                ownerId = UUID.fromString(tag.getString(NBT_OWNER));
-            } catch (IllegalArgumentException e) {
-                ownerId = null;
-            }
-        } else {
-            ownerId = null;
-        }
+        channelData = ChannelData.readFromNBT(tag);
     }
 }

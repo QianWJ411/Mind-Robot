@@ -1,6 +1,14 @@
 item.remote_helmet.name=Remote Control Helmet
-tooltip.mindrobot.helmet.paired=Paired with a robot
-tooltip.mindrobot.helmet.unpaired=Not paired with a robot
+item.frequency_chip.name=Frequency Chip
+
+tooltip.mindrobot.helmet.unpaired=No frequency chip installed
+tooltip.mindrobot.helmet.hint=Sneak + right click with a chip to install it
+tooltip.mindrobot.helmet.channel=Channel: %s
+tooltip.mindrobot.mode.private=Private channel (owner only)
+tooltip.mindrobot.mode.public=Public channel (anyone on the same number)
+tooltip.mindrobot.chip.unconfigured=No channel configured
+tooltip.mindrobot.chip.channel=Channel: %s
+tooltip.mindrobot.chip.hint=Right click to configure, sneak + right click to install
 
 key.categories.mindrobot=Mind-Robot
 key.mindrobot.radial_menu=Open Radial Menu
@@ -9,3 +17,35 @@ gui.mindrobot.radial.enter_robot=Operate Robot
 gui.mindrobot.radial.exit=Exit
 gui.mindrobot.radial.empty=No options available
 gui.mindrobot.radial.hint=Left click a sector to choose
+
+gui.mindrobot.chip.title=Frequency Chip
+gui.mindrobot.chip.channel=Channel (0 - 9999)
+gui.mindrobot.chip.mode_private=Mode: Private
+gui.mindrobot.chip.mode_public=Mode: Public
+gui.mindrobot.chip.confirm=Confirm
+gui.mindrobot.chip.cancel=Cancel
+gui.mindrobot.chip.invalid=The channel must be an integer between 0 and 9999
+
+chat.mindrobot.chip.unconfigured=This chip has no channel yet
+chat.mindrobot.chip.no_helmet=Put on a remote helmet first
+chat.mindrobot.chip.installed=Installed channel %s on the helmet
+chat.mindrobot.chip.overwritten=The previous helmet channel %s was replaced
+chat.mindrobot.chip.configured=Chip set to channel %s (%s)
+chat.mindrobot.chip.invalid=The channel must be an integer between 0 and 9999
+chat.mindrobot.chip.not_held=Hold a frequency chip in your main hand
+chat.mindrobot.link.connected=Connected to the robot on channel %s
+
+chat.mindrobot.denial.helmet_missing=You are not wearing a remote helmet
+chat.mindrobot.denial.helmet_unpaired=The helmet has no frequency chip installed
+chat.mindrobot.denial.no_robot=No robot is loaded on channel %s in this dimension
+chat.mindrobot.denial.channel_mismatch=Channel mismatch: helmet %s, robot %s
+chat.mindrobot.denial.private_owner=Channel %s is private, only its owner may connect
+chat.mindrobot.denial.occupied=The robot on channel %s is already taken
+chat.mindrobot.denial.already_driving=You are already driving a robot
+
+commands.mindrobot.usage=/mindrobot <chip|spawn> ...
+commands.mindrobot.player_only=This command can only be run by a player
+commands.mindrobot.mode.invalid=Unknown mode: %s (use private / public)
+commands.mindrobot.chip.no_chip=Hold a frequency chip in your main hand
+commands.mindrobot.spawn.success=Spawned a channel %s (%s) robot
+commands.mindrobot.spawn.failed=Could not spawn the robot

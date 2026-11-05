@@ -10,6 +10,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.util.ChatComponentTranslation;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.World;
 
@@ -22,9 +23,14 @@ import com.github.qianwj.mindrobot.network.ModNetwork;
 /**
  * Server side connection table between players and robots.
  * <p>
- * {@link #disconnect(EntityPlayer, DisconnectReason)} is the only public way to end a connection
- * (design decision D4): every end path (body death, robot death, menu exit, logout, dimension change,
- * server stop, helmet loss) funnels through it so no ghost link can survive.
+ * Pairing is channel based (D5): a helmet only stores a channel snapshot, the robot that answers on that
+ * channel is looked up in the world at connect time. {@link #requestEnter(EntityPlayerMP)} is the single
+ * server side entry point and walks the D5 validation order, telling the player the exact reason whenever it
+ * refuses.
+ * <p>
+ * {@link #disconnect(EntityPlayer, DisconnectReason)} is the only public way to end a connection (D4): every
+ * end path (body death, robot death, menu exit, logout, dimension change, server stop, helmet loss) funnels
+ * through it so no ghost link survives, and it always releases the driving chunk ticket (D10).
  */
 public final class RobotLinkManager {
 
@@ -51,23 +57,20 @@ public final class RobotLinkManager {
     }
 
     /**
-     * Single public disconnect entry point (D4). Unbinds the link, drops the anchor and tells the
-     * owning client to give the camera back.
+     * Single public disconnect entry point (D4). Unbinds the link, releases the forced chunk ticket and tells
+     * the owning client to give the camera back. The ticket is released even when no link is registered, so a
+     * desynchronised table can never leak a ticket.
      */
     public static void disconnect(EntityPlayer player, DisconnectReason reason) {
         if (player == null) {
             return;
         }
+        RobotChunkLoader.release(player.getUniqueID());
         RobotLink link = LINKS_BY_PLAYER.remove(player.getUniqueID());
         if (link == null) {
             return;
         }
         LINKS_BY_ROBOT.remove(link.getRobotId());
-
-        EntityRobot robot = findRobot(player.worldObj, link.getRobotId());
-        if (robot != null) {
-            robot.setOwnerId(null);
-        }
 
         MindRobot.LOG.info(
             "Robot link closed: player={} reason={} robot={}",
@@ -110,38 +113,76 @@ public final class RobotLinkManager {
 
     /**
      * Validates and opens a connection. The server decides, the client never does (D6).
+     * <p>
+     * Validation order is exactly D5: helmet channel present, channel match, private ownership, free robot.
+     * Every refusal is reported through {@link LinkDenial}, never silently.
      */
     public static void requestEnter(EntityPlayerMP player) {
-        if (player == null || isDriving(player)) {
+        if (player == null) {
             return;
         }
-        ItemStack helmetStack = player.getCurrentArmor(ItemRemoteHelmet.HEAD_ARMOR_SLOT);
-        if (helmetStack == null || !(helmetStack.getItem() instanceof ItemRemoteHelmet)) {
+        if (isDriving(player)) {
+            LinkDenial.ALREADY_DRIVING.send(player);
             return;
         }
 
-        EntityRobot robot = resolveRobot(player, helmetStack);
-        if (robot == null || LINKS_BY_ROBOT.containsKey(robot.getUniqueID())) {
+        ItemStack helmetStack = player.getCurrentArmor(ItemRemoteHelmet.HEAD_ARMOR_SLOT);
+        if (helmetStack == null || !(helmetStack.getItem() instanceof ItemRemoteHelmet)) {
+            LinkDenial.HELMET_MISSING.send(player);
+            return;
+        }
+        // D5 step 1: a helmet without a chip has nothing to pair with, so there is no connection option.
+        ChannelData helmetChannel = ItemRemoteHelmet.getChannelData(helmetStack);
+        if (helmetChannel == null) {
+            LinkDenial.HELMET_UNPAIRED.send(player);
+            return;
+        }
+
+        EntityRobot robot = findRobotByChannel(player.worldObj, helmetChannel, player);
+        if (robot == null) {
+            LinkDenial.NO_ROBOT.send(player, helmetChannel.getChannel());
+            return;
+        }
+
+        // D5 step 2: channels must be identical.
+        ChannelData robotChannel = robot.getChannelData();
+        if (robotChannel == null || !helmetChannel.matchesChannel(robotChannel)) {
+            LinkDenial.CHANNEL_MISMATCH.send(
+                player,
+                helmetChannel.getChannel(),
+                robotChannel == null ? "?" : Integer.valueOf(robotChannel.getChannel()));
+            return;
+        }
+        // D5 step 3: a private robot only accepts its own owner, even on the same number.
+        if (robotChannel.isPrivate() && !robotChannel.isOwnedBy(helmetChannel.getOwner())) {
+            LinkDenial.PRIVATE_OWNER.send(player, robotChannel.getChannel());
+            return;
+        }
+        // D5 steps 4 and 5: a public robot takes any same channel driver, but only one at a time (R13).
+        if (LINKS_BY_ROBOT.containsKey(robot.getUniqueID())) {
+            LinkDenial.ROBOT_OCCUPIED.send(player, robotChannel.getChannel());
             return;
         }
 
         RobotLink link = new RobotLink(player, robot.getUniqueID());
         LINKS_BY_PLAYER.put(player.getUniqueID(), link);
         LINKS_BY_ROBOT.put(robot.getUniqueID(), link);
-        robot.setOwnerId(player.getUniqueID());
+        RobotChunkLoader.force(player.getUniqueID(), robot);
 
         MindRobot.LOG.info(
-            "Robot link opened: player={} robot={} anchor=[{},{},{}]",
+            "Robot link opened: player={} robot={} channel={} anchor=[{},{},{}]",
             player.getCommandSenderName(),
             robot.getUniqueID(),
+            robotChannel.getChannel(),
             link.getAnchorX(),
             link.getAnchorY(),
             link.getAnchorZ());
 
+        player.addChatMessage(new ChatComponentTranslation("chat.mindrobot.link.connected", robotChannel.getChannel()));
         ModNetwork.syncLinkState(player);
     }
 
-    /** Called by {@link EntityRobot#onDeath} so a destroyed robot forces the player out (R8). */
+    /** Called by {@link EntityRobot#destroyRobot()} so a destroyed robot forces the player out (R8). */
     public static void notifyRobotDestroyed(EntityRobot robot) {
         if (robot == null) {
             return;
@@ -156,12 +197,13 @@ public final class RobotLinkManager {
         } else {
             LINKS_BY_ROBOT.remove(robot.getUniqueID());
             LINKS_BY_PLAYER.remove(link.getPlayerId());
+            RobotChunkLoader.release(link.getPlayerId());
         }
     }
 
     /**
-     * Per player server tick: enforces the frozen body rules of D3 and detects every involuntary
-     * disconnect reason.
+     * Per player server tick: enforces the frozen body rules of D3, follows the robot with the forced chunk
+     * ticket (R23) and detects every involuntary disconnect reason.
      */
     public static void tickPlayer(EntityPlayerMP player) {
         RobotLink link = LINKS_BY_PLAYER.get(player.getUniqueID());
@@ -186,6 +228,8 @@ public final class RobotLinkManager {
             return;
         }
 
+        // The ticket follows the robot: crossing a chunk border forces the new chunk and releases the old one.
+        RobotChunkLoader.tick(player.getUniqueID(), robot);
         pinToAnchor(player, link);
     }
 
@@ -204,7 +248,10 @@ public final class RobotLinkManager {
         LINKS_BY_ROBOT.clear();
     }
 
-    /** Server side menu clipping (D6): the options the client is allowed to draw right now. */
+    /**
+     * Server side menu clipping (D6): the options the client is allowed to draw right now. A helmet with no
+     * channel gets no connection entry at all (D5 step 1).
+     */
     public static MenuOption[] menuOptionsFor(EntityPlayer player) {
         if (player == null) {
             return new MenuOption[0];
@@ -213,7 +260,8 @@ public final class RobotLinkManager {
             return new MenuOption[] { MenuOption.EXIT };
         }
         ItemStack helmetStack = player.getCurrentArmor(ItemRemoteHelmet.HEAD_ARMOR_SLOT);
-        if (helmetStack != null && helmetStack.getItem() instanceof ItemRemoteHelmet) {
+        if (helmetStack != null && helmetStack.getItem() instanceof ItemRemoteHelmet
+            && ItemRemoteHelmet.hasChannel(helmetStack)) {
             return new MenuOption[] { MenuOption.ENTER_ROBOT };
         }
         return new MenuOption[0];
@@ -263,45 +311,31 @@ public final class RobotLinkManager {
         }
     }
 
-    private static EntityRobot resolveRobot(EntityPlayer player, ItemStack helmetStack) {
-        UUID robotId = ItemRemoteHelmet.getPairedRobot(helmetStack);
-        if (robotId != null) {
-            EntityRobot existing = findRobot(player.worldObj, robotId);
-            if (existing != null) {
-                return existing;
-            }
-            MindRobot.LOG.warn("Paired robot {} is not loaded, pairing a fresh one", robotId);
-        }
-        return spawnPlaceholderRobot(player, helmetStack);
-    }
-
     /**
-     * P0 stand in for the assembly table (R14/P3): there is no way to build a robot yet, so the first
-     * connection request materialises one next to the player and pairs the helmet with it.
+     * Finds the robot that answers on the given channel in this world. When several robots share a channel
+     * (only possible through debug spawning) the nearest one wins, so the choice is deterministic.
      */
-    private static EntityRobot spawnPlaceholderRobot(EntityPlayer player, ItemStack helmetStack) {
-        World world = player.worldObj;
-        double yaw = Math.toRadians(player.rotationYaw);
-        double spawnX = player.posX - Math.sin(yaw) * 2.0D;
-        double spawnZ = player.posZ + Math.cos(yaw) * 2.0D;
-        if (!hasRoomForRobot(world, spawnX, player.posY, spawnZ)) {
-            spawnX = player.posX;
-            spawnZ = player.posZ;
+    private static EntityRobot findRobotByChannel(World world, ChannelData channel, EntityPlayer player) {
+        if (world == null || channel == null) {
+            return null;
         }
-
-        EntityRobot robot = new EntityRobot(world);
-        robot.setLocationAndAngles(spawnX, player.posY, spawnZ, player.rotationYaw, 0.0F);
-        robot.setOwnerId(player.getUniqueID());
-        world.spawnEntityInWorld(robot);
-        ItemRemoteHelmet.setPairedRobot(helmetStack, robot.getUniqueID());
-        return robot;
-    }
-
-    private static boolean hasRoomForRobot(World world, double x, double y, double z) {
-        int blockX = MathHelper.floor_double(x);
-        int blockY = MathHelper.floor_double(y);
-        int blockZ = MathHelper.floor_double(z);
-        return world.isAirBlock(blockX, blockY, blockZ) && world.isAirBlock(blockX, blockY + 1, blockZ);
+        EntityRobot nearest = null;
+        double nearestDistance = Double.MAX_VALUE;
+        for (Object candidate : world.loadedEntityList) {
+            if (!(candidate instanceof EntityRobot)) {
+                continue;
+            }
+            EntityRobot robot = (EntityRobot) candidate;
+            if (robot.isDead || !channel.matchesChannel(robot.getChannelData())) {
+                continue;
+            }
+            double distance = player == null ? 0.0D : robot.getDistanceSqToEntity(player);
+            if (nearest == null || distance < nearestDistance) {
+                nearest = robot;
+                nearestDistance = distance;
+            }
+        }
+        return nearest;
     }
 
     private static EntityRobot findRobot(World world, UUID robotId) {

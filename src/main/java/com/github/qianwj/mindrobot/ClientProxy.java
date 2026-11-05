@@ -1,11 +1,16 @@
 package com.github.qianwj.mindrobot;
 
+import net.minecraft.client.Minecraft;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.item.ItemStack;
 import net.minecraftforge.common.MinecraftForge;
 
 import com.github.qianwj.mindrobot.client.ClientEventHandler;
+import com.github.qianwj.mindrobot.client.gui.ChipConfigGui;
 import com.github.qianwj.mindrobot.client.key.KeyBindings;
 import com.github.qianwj.mindrobot.client.render.RenderRobot;
 import com.github.qianwj.mindrobot.entity.EntityRobot;
+import com.github.qianwj.mindrobot.item.ItemFrequencyChip;
 
 import cpw.mods.fml.client.registry.RenderingRegistry;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -28,5 +33,11 @@ public class ClientProxy extends CommonProxy {
         FMLCommonHandler.instance()
             .bus()
             .register(clientHandler);
+    }
+
+    @Override
+    public void openChipConfigGui(EntityPlayer player, ItemStack stack) {
+        Minecraft.getMinecraft()
+            .displayGuiScreen(new ChipConfigGui(ItemFrequencyChip.getChannelData(stack)));
     }
 }

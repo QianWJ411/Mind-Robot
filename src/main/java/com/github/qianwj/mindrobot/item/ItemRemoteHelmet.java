@@ -1,7 +1,6 @@
 package com.github.qianwj.mindrobot.item;
 
 import java.util.List;
-import java.util.UUID;
 
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
@@ -12,15 +11,14 @@ import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.StatCollector;
 
 import com.github.qianwj.mindrobot.MindRobot;
+import com.github.qianwj.mindrobot.link.ChannelData;
 
 /**
- * Remote control helmet. A head slot armor piece that stores the UUID of the robot it is paired with
- * inside its own stack NBT (design decision D5).
+ * Remote control helmet. A head slot armor piece that stores a snapshot of the frequency channel it is
+ * paired with (D5: {@code channel} / {@code mode} / {@code owner}), copied from a frequency chip via
+ * shift + right click. The UUID pairing of P0 is gone; a helmet no longer names a specific robot.
  */
 public class ItemRemoteHelmet extends ItemArmor {
-
-    /** NBT key holding the paired robot UUID as a string. */
-    public static final String NBT_PAIRED_ROBOT = "PairedRobot";
 
     /** Head slot index inside EntityPlayer#getCurrentArmor. */
     public static final int HEAD_ARMOR_SLOT = 3;
@@ -41,50 +39,56 @@ public class ItemRemoteHelmet extends ItemArmor {
 
     @Override
     public void addInformation(ItemStack stack, EntityPlayer player, List<String> tooltip, boolean advanced) {
-        UUID robotId = getPairedRobot(stack);
-        String key = robotId == null ? "tooltip.mindrobot.helmet.unpaired" : "tooltip.mindrobot.helmet.paired";
-        tooltip.add(EnumChatFormatting.DARK_GRAY + StatCollector.translateToLocal(key));
+        ChannelData channel = getChannelData(stack);
+        if (channel == null) {
+            tooltip.add(
+                EnumChatFormatting.DARK_GRAY + StatCollector.translateToLocal("tooltip.mindrobot.helmet.unpaired"));
+            tooltip.add(EnumChatFormatting.DARK_GRAY + StatCollector.translateToLocal("tooltip.mindrobot.helmet.hint"));
+            return;
+        }
+        tooltip.add(
+            EnumChatFormatting.DARK_GRAY
+                + StatCollector.translateToLocalFormatted("tooltip.mindrobot.helmet.channel", channel.getChannel()));
+        tooltip.add(
+            EnumChatFormatting.DARK_GRAY + StatCollector.translateToLocal(
+                channel.isPrivate() ? "tooltip.mindrobot.mode.private" : "tooltip.mindrobot.mode.public"));
     }
 
     /**
-     * Reads the UUID of the robot paired with this helmet stack.
+     * Reads the channel snapshot installed in this helmet.
      *
-     * @return the paired robot UUID, or null when the stack is unpaired or the tag is malformed
+     * @return the snapshot, or {@code null} when no chip has been installed (or the tag is malformed)
      */
-    public static UUID getPairedRobot(ItemStack stack) {
+    public static ChannelData getChannelData(ItemStack stack) {
         if (stack == null || !stack.hasTagCompound()) {
             return null;
         }
-        NBTTagCompound tag = stack.getTagCompound();
-        if (!tag.hasKey(NBT_PAIRED_ROBOT)) {
-            return null;
-        }
-        try {
-            return UUID.fromString(tag.getString(NBT_PAIRED_ROBOT));
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
+        return ChannelData.readFromNBT(stack.getTagCompound());
     }
 
     /**
-     * Writes (or clears, when robotId is null) the paired robot UUID on this helmet stack.
+     * Writes (or clears, when {@code channel} is null) the channel snapshot of this helmet stack.
      */
-    public static void setPairedRobot(ItemStack stack, UUID robotId) {
+    public static void setChannelData(ItemStack stack, ChannelData channel) {
         if (stack == null) {
+            return;
+        }
+        if (channel == null) {
+            if (stack.hasTagCompound()) {
+                ChannelData.removeFromNBT(stack.getTagCompound());
+            }
             return;
         }
         NBTTagCompound tag = stack.getTagCompound();
         if (tag == null) {
-            if (robotId == null) {
-                return;
-            }
             tag = new NBTTagCompound();
             stack.setTagCompound(tag);
         }
-        if (robotId == null) {
-            tag.removeTag(NBT_PAIRED_ROBOT);
-        } else {
-            tag.setString(NBT_PAIRED_ROBOT, robotId.toString());
-        }
+        channel.writeToNBT(tag);
+    }
+
+    /** True when this helmet carries a usable channel snapshot. */
+    public static boolean hasChannel(ItemStack stack) {
+        return getChannelData(stack) != null;
     }
 }

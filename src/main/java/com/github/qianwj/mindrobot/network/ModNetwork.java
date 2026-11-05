@@ -19,13 +19,15 @@ import cpw.mods.fml.relauncher.Side;
 /**
  * Network setup and the server side state push.
  * <p>
- * Two messages are enough for P0: a client to server intent ({@link LinkRequestMessage}) and a server to
- * client snapshot ({@link LinkStateMessage}).
+ * Three messages are enough for P0.5: a client to server connection intent
+ * ({@link LinkRequestMessage}), a server to client snapshot ({@link LinkStateMessage}) and the frequency chip
+ * configuration request ({@link ChipConfigMessage}).
  */
 public final class ModNetwork {
 
     private static final int DISCRIMINATOR_REQUEST = 0;
     private static final int DISCRIMINATOR_STATE = 1;
+    private static final int DISCRIMINATOR_CHIP_CONFIG = 2;
 
     private static SimpleNetworkWrapper channel;
 
@@ -38,6 +40,8 @@ public final class ModNetwork {
         channel = NetworkRegistry.INSTANCE.newSimpleChannel(MindRobot.MODID);
         channel.registerMessage(LinkRequestHandler.class, LinkRequestMessage.class, DISCRIMINATOR_REQUEST, Side.SERVER);
         channel.registerMessage(LinkStateHandler.class, LinkStateMessage.class, DISCRIMINATOR_STATE, Side.CLIENT);
+        channel
+            .registerMessage(ChipConfigHandler.class, ChipConfigMessage.class, DISCRIMINATOR_CHIP_CONFIG, Side.SERVER);
     }
 
     public static void sendToServer(IMessage message) {

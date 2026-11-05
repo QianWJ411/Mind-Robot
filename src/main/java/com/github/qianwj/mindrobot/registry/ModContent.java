@@ -4,6 +4,7 @@ import net.minecraft.item.Item;
 
 import com.github.qianwj.mindrobot.MindRobot;
 import com.github.qianwj.mindrobot.entity.EntityRobot;
+import com.github.qianwj.mindrobot.item.ItemFrequencyChip;
 import com.github.qianwj.mindrobot.item.ItemRemoteHelmet;
 import com.github.qianwj.mindrobot.network.ModNetwork;
 
@@ -18,6 +19,7 @@ import cpw.mods.fml.common.registry.GameRegistry;
 public final class ModContent {
 
     public static final String REMOTE_HELMET_NAME = "remote_helmet";
+    public static final String FREQUENCY_CHIP_NAME = "frequency_chip";
 
     private static final String ROBOT_ENTITY_NAME = "robot";
     private static final int ROBOT_ENTITY_ID = 0;
@@ -27,12 +29,17 @@ public final class ModContent {
 
     /** The remote helmet item, registered during preInit. */
     public static Item remoteHelmet;
+    /** The frequency chip item, registered during preInit (R13, R21). */
+    public static Item frequencyChip;
 
     private ModContent() {}
 
     public static void preInit() {
         remoteHelmet = new ItemRemoteHelmet();
         GameRegistry.registerItem(remoteHelmet, REMOTE_HELMET_NAME);
+
+        frequencyChip = new ItemFrequencyChip();
+        GameRegistry.registerItem(frequencyChip, FREQUENCY_CHIP_NAME);
 
         EntityRegistry.registerModEntity(
             EntityRobot.class,

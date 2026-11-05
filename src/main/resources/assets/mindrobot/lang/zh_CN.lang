@@ -1,6 +1,14 @@
 item.remote_helmet.name=遥控头盔
-tooltip.mindrobot.helmet.paired=已与一台机器人配对
-tooltip.mindrobot.helmet.unpaired=尚未与机器人配对
+item.frequency_chip.name=频道芯片
+
+tooltip.mindrobot.helmet.unpaired=尚未安装频道芯片
+tooltip.mindrobot.helmet.hint=手持芯片对准头盔潜行右键可安装
+tooltip.mindrobot.helmet.channel=频道：%s
+tooltip.mindrobot.mode.private=私人频道（仅设置者可用）
+tooltip.mindrobot.mode.public=公共频道（同号皆可连接）
+tooltip.mindrobot.chip.unconfigured=尚未设置频道
+tooltip.mindrobot.chip.channel=频道：%s
+tooltip.mindrobot.chip.hint=右键设置频道，潜行右键装入头盔
 
 key.categories.mindrobot=Mind-Robot
 key.mindrobot.radial_menu=打开转轮面板
@@ -9,3 +17,35 @@ gui.mindrobot.radial.enter_robot=操作机器人
 gui.mindrobot.radial.exit=退出
 gui.mindrobot.radial.empty=当前没有可用选项
 gui.mindrobot.radial.hint=左键点击扇区进行选择
+
+gui.mindrobot.chip.title=频道芯片设置
+gui.mindrobot.chip.channel=频道号（0 - 9999）
+gui.mindrobot.chip.mode_private=模式：私人
+gui.mindrobot.chip.mode_public=模式：公共
+gui.mindrobot.chip.confirm=确认
+gui.mindrobot.chip.cancel=取消
+gui.mindrobot.chip.invalid=频道号必须是 0 - 9999 的整数
+
+chat.mindrobot.chip.unconfigured=这块芯片还没有设置频道
+chat.mindrobot.chip.no_helmet=需要先戴着遥控头盔
+chat.mindrobot.chip.installed=已将频道 %s 写入头盔
+chat.mindrobot.chip.overwritten=头盔原来的频道 %s 已被覆盖
+chat.mindrobot.chip.configured=芯片已设置为频道 %s（%s）
+chat.mindrobot.chip.invalid=频道号必须是 0 - 9999 的整数
+chat.mindrobot.chip.not_held=主手需要拿着频道芯片
+chat.mindrobot.link.connected=已接入频道 %s 的机器人
+
+chat.mindrobot.denial.helmet_missing=没有戴着遥控头盔
+chat.mindrobot.denial.helmet_unpaired=头盔还没有安装频道芯片
+chat.mindrobot.denial.no_robot=这个维度里没有频道 %s 的机器人
+chat.mindrobot.denial.channel_mismatch=频道不符：头盔 %s，机器人 %s
+chat.mindrobot.denial.private_owner=频道 %s 是私人频道，只有设置者可以使用
+chat.mindrobot.denial.occupied=频道 %s 的机器人已经被其他玩家占用
+chat.mindrobot.denial.already_driving=你已经在一台机器人里了
+
+commands.mindrobot.usage=/mindrobot <chip|spawn> ...
+commands.mindrobot.player_only=该命令只能由玩家执行
+commands.mindrobot.mode.invalid=未知模式：%s（可用 private / public）
+commands.mindrobot.chip.no_chip=主手需要拿着频道芯片
+commands.mindrobot.spawn.success=已生成频道 %s（%s）的机器人
+commands.mindrobot.spawn.failed=机器人生成失败
