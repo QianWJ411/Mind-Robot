@@ -4,7 +4,7 @@ item.frequency_chip.name=Frequency Chip
 tooltip.mindrobot.helmet.unpaired=No frequency chip installed
 tooltip.mindrobot.helmet.hint=Sneak + right click with a chip to install it
 tooltip.mindrobot.helmet.channel=Channel: %s
-tooltip.mindrobot.helmet.lastpos=Last known position: %s, %s, %s (dimension %s)
+tooltip.mindrobot.helmet.lastpos=Last reported position: %s, %s, %s (dimension %s)
 tooltip.mindrobot.mode.private=Private channel (owner only)
 tooltip.mindrobot.mode.public=Public channel (anyone on the same number)
 tooltip.mindrobot.chip.unconfigured=No channel configured
@@ -35,7 +35,7 @@ chat.mindrobot.chip.configured=Chip set to channel %s (%s)
 chat.mindrobot.chip.invalid=The channel must be an integer between 0 and 9999
 chat.mindrobot.chip.not_held=Hold a frequency chip in your main hand
 chat.mindrobot.link.connected=Connected to the robot on channel %s
-chat.mindrobot.link.waking=Waking the signal (last known position %s, %s, %s) ...
+chat.mindrobot.link.waking=Waking the signal (last reported position %s, %s, %s) ...
 
 chat.mindrobot.denial.helmet_missing=You are not wearing a remote helmet
 chat.mindrobot.denial.helmet_unpaired=The helmet has no frequency chip installed

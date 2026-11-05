@@ -24,9 +24,11 @@ import com.github.qianwj.mindrobot.network.ModNetwork;
  * Server side connection table between players and robots.
  * <p>
  * Pairing is channel based (D5): a helmet only stores a channel snapshot, the robot that answers on that
- * channel is looked up in the world at connect time. {@link #requestEnter(EntityPlayerMP)} is the single
- * server side entry point and walks the D5 validation order, telling the player the exact reason whenever it
- * refuses.
+ * channel is looked up in the world at connect time. When no robot is loaded, {@link RobotRegistry} - the
+ * world level table the robots report themselves into (R27 / D11) - provides the chunk to wake; the helmet
+ * copy of the position is a tooltip mirror and is never read here. {@link #requestEnter(EntityPlayerMP)} is
+ * the single server side entry point and walks the D5 validation order, telling the player the exact reason
+ * whenever it refuses.
  * <p>
  * {@link #disconnect(EntityPlayer, DisconnectReason)} is the only public way to end a connection (D4): every
  * end path (body death, robot death, menu exit, logout, dimension change, server stop, helmet loss) funnels
@@ -37,7 +39,7 @@ public final class RobotLinkManager {
     private static final Map<UUID, RobotLink> LINKS_BY_PLAYER = new HashMap<UUID, RobotLink>();
     private static final Map<UUID, RobotLink> LINKS_BY_ROBOT = new HashMap<UUID, RobotLink>();
 
-    /** Connection attempts waiting for a remembered chunk to load (R27). */
+    /** Connection attempts waiting for a registered chunk to load (R27). */
     private static final Map<UUID, PendingEnter> PENDING_ENTERS = new HashMap<UUID, PendingEnter>();
 
     /**
@@ -50,16 +52,18 @@ public final class RobotLinkManager {
     private static final float ANCHOR_ROTATION_EPSILON = 0.1F;
     private static final int WAKE_TIMEOUT_TICKS = 60;
 
-    /** A connection that is being retried while the remembered chunk loads back in (R27). */
+    /** A connection that is being retried while the registered chunk loads back in (R27). */
     private static final class PendingEnter {
 
         private final ChannelData channel;
-        private final LastKnownPosition position;
+        private final int chunkX;
+        private final int chunkZ;
         private int ticksLeft = WAKE_TIMEOUT_TICKS;
 
-        private PendingEnter(ChannelData channel, LastKnownPosition position) {
+        private PendingEnter(ChannelData channel, RobotRegistry.Entry record) {
             this.channel = channel;
-            this.position = position;
+            this.chunkX = record.getChunkX();
+            this.chunkZ = record.getChunkZ();
         }
     }
 
@@ -104,23 +108,23 @@ public final class RobotLinkManager {
     }
 
     /**
-     * R27: when a link ends, the robot position is written into both sides of the pairing - the worn helmet
-     * (so the player keeps the record and can wake the machine later) and the robot itself (so the machine
-     * keeps its own coordinate even if the helmet is lost). Falls back to the link's last seen coordinate when
-     * the entity is not loaded.
+     * R27: a finished link refreshes two things - the registry row of the robot (it reports once more while it
+     * is still loaded) and the display mirror inside the helmet the driver wore. The helmet value is never
+     * consulted to find a robot again; the registry is the only wake-up source (D11).
      */
     private static void rememberLastPosition(EntityPlayer player, RobotLink link) {
+        RobotRegistry registry = RobotRegistry.get(player.worldObj);
         EntityRobot robot = findRobot(player.worldObj, link.getRobotId());
         LastKnownPosition position;
         if (robot != null) {
-            position = new LastKnownPosition(robot.posX, robot.posY, robot.posZ, player.dimension);
-            robot.setLastLinkPosition(position);
+            if (registry != null) {
+                registry.report(robot);
+            }
+            position = new LastKnownPosition(robot.posX, robot.posY, robot.posZ, robot.worldObj.provider.dimensionId);
         } else {
-            position = new LastKnownPosition(
-                link.getRobotX(),
-                link.getRobotY(),
-                link.getRobotZ(),
-                link.getDimensionId());
+            RobotRegistry.Entry record = registry == null ? null : registry.get(link.getRobotId());
+            position = record != null ? record.asPosition()
+                : new LastKnownPosition(link.getRobotX(), link.getRobotY(), link.getRobotZ(), link.getDimensionId());
         }
         ItemStack helmet = player.getCurrentArmor(ItemRemoteHelmet.HEAD_ARMOR_SLOT);
         if (helmet != null && helmet.getItem() instanceof ItemRemoteHelmet) {
@@ -187,7 +191,7 @@ public final class RobotLinkManager {
 
         EntityRobot robot = findRobotByChannel(player.worldObj, helmetChannel, player);
         if (robot == null) {
-            if (scheduleWake(player, helmetStack, helmetChannel)) {
+            if (scheduleWake(player, helmetChannel)) {
                 return;
             }
             LinkDenial.NO_ROBOT.send(player, helmetChannel.getChannel());
@@ -197,26 +201,38 @@ public final class RobotLinkManager {
     }
 
     /**
-     * R27: no robot is loaded, but the helmet remembers where the machine stood when the last link ended. The
-     * remembered chunk is forced back in and the request is retried for a bounded number of ticks instead of
-     * being refused outright.
+     * R27: no robot is loaded, so the world level registry decides. When it holds a row for the helmet
+     * channel in this dimension, the chunk of that row is forced back in and the request is retried for a
+     * bounded number of ticks instead of being refused outright. The helmet copy of the position is not
+     * consulted, it is a display mirror only.
      */
-    private static boolean scheduleWake(EntityPlayerMP player, ItemStack helmetStack, ChannelData helmetChannel) {
-        LastKnownPosition remembered = ItemRemoteHelmet.getLastKnownPosition(helmetStack);
-        if (remembered == null || remembered.getDimension() != player.dimension) {
-            return false;
-        }
+    private static boolean scheduleWake(EntityPlayerMP player, ChannelData helmetChannel) {
         if (PENDING_ENTERS.containsKey(player.getUniqueID())) {
             return true;
         }
-        PENDING_ENTERS.put(player.getUniqueID(), new PendingEnter(helmetChannel, remembered));
-        RobotChunkLoader.forceAt(player.getUniqueID(), player.worldObj, remembered.getChunkX(), remembered.getChunkZ());
+        RobotRegistry registry = RobotRegistry.get(player.worldObj);
+        if (registry == null) {
+            return false;
+        }
+        RobotRegistry.Entry record = registry
+            .findMostRecent(helmetChannel.getChannel(), player.dimension, player.posX, player.posZ);
+        if (record == null) {
+            return false;
+        }
+        // A private channel owned by somebody else is refused before a single chunk is forced for it.
+        ChannelData recordChannel = record.getChannelData();
+        if (recordChannel != null && recordChannel.isPrivate() && !recordChannel.isOwnedBy(helmetChannel.getOwner())) {
+            LinkDenial.PRIVATE_OWNER.send(player, helmetChannel.getChannel());
+            return true;
+        }
+        PENDING_ENTERS.put(player.getUniqueID(), new PendingEnter(helmetChannel, record));
+        RobotChunkLoader.forceAt(player.getUniqueID(), player.worldObj, record.getChunkX(), record.getChunkZ());
         player.addChatMessage(
             new ChatComponentTranslation(
                 "chat.mindrobot.link.waking",
-                remembered.getBlockX(),
-                remembered.getBlockY(),
-                remembered.getBlockZ()));
+                record.getBlockX(),
+                record.getBlockY(),
+                record.getBlockZ()));
         return true;
     }
 
@@ -246,6 +262,7 @@ public final class RobotLinkManager {
         LINKS_BY_PLAYER.put(player.getUniqueID(), link);
         LINKS_BY_ROBOT.put(robot.getUniqueID(), link);
         RobotChunkLoader.force(player.getUniqueID(), robot);
+        rememberIntoHelmet(player, robot);
 
         MindRobot.LOG.info(
             "Robot link opened: player={} robot={} channel={} anchor=[{},{},{}]",
@@ -258,6 +275,17 @@ public final class RobotLinkManager {
 
         player.addChatMessage(new ChatComponentTranslation("chat.mindrobot.link.connected", robotChannel.getChannel()));
         ModNetwork.syncLinkState(player);
+    }
+
+    /** Copies the current robot position into the worn helmet; tooltip only, never a wake-up source (D11). */
+    private static void rememberIntoHelmet(EntityPlayer player, EntityRobot robot) {
+        ItemStack helmet = player.getCurrentArmor(ItemRemoteHelmet.HEAD_ARMOR_SLOT);
+        if (helmet == null || !(helmet.getItem() instanceof ItemRemoteHelmet)) {
+            return;
+        }
+        ItemRemoteHelmet.setLastKnownPosition(
+            helmet,
+            new LastKnownPosition(robot.posX, robot.posY, robot.posZ, robot.worldObj.provider.dimensionId));
     }
 
     /** Called by {@link EntityRobot#destroyRobot()} so a destroyed robot forces the player out (R8). */
@@ -380,7 +408,7 @@ public final class RobotLinkManager {
         return robot == null ? -1 : robot.getEntityId();
     }
 
-    /** Retries a remembered channel every tick until the forced chunk loads the robot back in (R27). */
+    /** Retries the requested channel every tick until the forced chunk loads the robot back in (R27). */
     private static void tickPendingEnter(EntityPlayerMP player) {
         PendingEnter pending = PENDING_ENTERS.get(player.getUniqueID());
         if (pending == null) {
@@ -394,11 +422,16 @@ public final class RobotLinkManager {
         }
         if (--pending.ticksLeft <= 0) {
             PENDING_ENTERS.remove(player.getUniqueID());
+            // The wake failed: when the chunk is loaded the row is stale (the robot was removed outside
+            // destroyRobot, for instance with /kill), so it must not trigger another futile wake later.
+            RobotRegistry registry = RobotRegistry.get(player.worldObj);
+            if (registry != null) {
+                registry.pruneStale(player.worldObj);
+            }
             LinkDenial.NO_ROBOT.send(player, pending.channel.getChannel());
             return;
         }
-        RobotChunkLoader
-            .forceAt(player.getUniqueID(), player.worldObj, pending.position.getChunkX(), pending.position.getChunkZ());
+        RobotChunkLoader.forceAt(player.getUniqueID(), player.worldObj, pending.chunkX, pending.chunkZ);
     }
 
     /**

@@ -4,7 +4,7 @@ item.frequency_chip.name=频道芯片
 tooltip.mindrobot.helmet.unpaired=尚未安装频道芯片
 tooltip.mindrobot.helmet.hint=手持芯片对准头盔潜行右键可安装
 tooltip.mindrobot.helmet.channel=频道：%s
-tooltip.mindrobot.helmet.lastpos=最后位置：%s, %s, %s（维度 %s）
+tooltip.mindrobot.helmet.lastpos=机器人上次报告的坐标：%s, %s, %s（维度 %s）
 tooltip.mindrobot.mode.private=私人频道（仅设置者可用）
 tooltip.mindrobot.mode.public=公共频道（同号皆可连接）
 tooltip.mindrobot.chip.unconfigured=尚未设置频道
@@ -35,7 +35,7 @@ chat.mindrobot.chip.configured=芯片已设置为频道 %s（%s）
 chat.mindrobot.chip.invalid=频道号必须是 0 - 9999 的整数
 chat.mindrobot.chip.not_held=主手需要拿着频道芯片
 chat.mindrobot.link.connected=已接入频道 %s 的机器人
-chat.mindrobot.link.waking=正在唤醒信号（最后位置 %s, %s, %s）…
+chat.mindrobot.link.waking=正在唤醒信号（机器人上次报告的坐标 %s, %s, %s）…
 
 chat.mindrobot.denial.helmet_missing=没有戴着遥控头盔
 chat.mindrobot.denial.helmet_unpaired=头盔还没有安装频道芯片

@@ -11,8 +11,8 @@ import net.minecraft.world.World;
 import com.github.qianwj.mindrobot.api.IRobotCore;
 import com.github.qianwj.mindrobot.damage.RobotDamage;
 import com.github.qianwj.mindrobot.link.ChannelData;
-import com.github.qianwj.mindrobot.link.LastKnownPosition;
 import com.github.qianwj.mindrobot.link.RobotLinkManager;
+import com.github.qianwj.mindrobot.link.RobotRegistry;
 
 /**
  * Remote controlled robot body.
@@ -28,7 +28,10 @@ import com.github.qianwj.mindrobot.link.RobotLinkManager;
 public class EntityRobot extends EntityLivingBase implements IRobotCore {
 
     private static final String NBT_STRUCTURAL_INTEGRITY = "StructuralIntegrity";
-    private static final String NBT_LAST_LINK_POSITION = "LastLinkPosition";
+
+    /** How often the robot reports its own position into {@link RobotRegistry} (R27). 20 ticks = 1 second. */
+    private static final int POSITION_REPORT_INTERVAL = 20;
+    private static final int UNKNOWN_CHUNK = Integer.MIN_VALUE;
 
     /** Display only health value. Never used as durability. */
     private static final float DISGUISE_MAX_HEALTH = 20.0F;
@@ -45,8 +48,11 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
      * configured it. {@code null} until an assembly table (P3) or {@code /mindrobot spawn} assigns one.
      */
     private ChannelData channelData;
-    /** Last position of a finished link, mirrored with the helmet side (R27). */
-    private LastKnownPosition lastLinkPosition;
+    /** Forced true on every load from NBT, so the first tick after a restart re-registers the robot (R27). */
+    private boolean positionReportPending = true;
+    /** Chunk of the last report: a border crossing reports at once instead of waiting for the interval. */
+    private int lastReportedChunkX = UNKNOWN_CHUNK;
+    private int lastReportedChunkZ = UNKNOWN_CHUNK;
     /** Real durability of the chassis. */
     private int structuralIntegrity = DEFAULT_MAX_STRUCTURAL_INTEGRITY;
 
@@ -69,6 +75,41 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
     @Override
     public void setHealth(float health) {
         // Intentionally empty: the robot must never enter the vanilla death flow.
+    }
+
+    /**
+     * Robot self reporting (R27 / D11): the machine, not the helmet, is the source of its own position.
+     * <p>
+     * A row is written every {@link #POSITION_REPORT_INTERVAL} ticks, immediately after a chunk border
+     * crossing, and once on the first tick after the entity was loaded from disk (so a restart never leaves a
+     * stale coordinate behind). Client side copies never report.
+     */
+    @Override
+    public void onEntityUpdate() {
+        super.onEntityUpdate();
+        if (worldObj == null || worldObj.isRemote) {
+            return;
+        }
+        reportPosition();
+    }
+
+    /** Writes the registry row when one of the three triggers fires; otherwise does nothing. */
+    private void reportPosition() {
+        int chunkX = MathHelper.floor_double(posX) >> 4;
+        int chunkZ = MathHelper.floor_double(posZ) >> 4;
+        boolean crossedChunk = chunkX != lastReportedChunkX || chunkZ != lastReportedChunkZ;
+        boolean due = ticksExisted % POSITION_REPORT_INTERVAL == 0;
+        if (!positionReportPending && !crossedChunk && !due) {
+            return;
+        }
+        RobotRegistry registry = RobotRegistry.get(worldObj);
+        if (registry == null) {
+            return;
+        }
+        positionReportPending = false;
+        lastReportedChunkX = chunkX;
+        lastReportedChunkZ = chunkZ;
+        registry.report(this);
     }
 
     @Override
@@ -160,6 +201,12 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
             worldObj.playSoundEffect(posX, effectY, posZ, "random.explode", 1.0F, 1.0F);
             worldObj.spawnParticle("largeexplode", posX, effectY, posZ, 0.0D, 0.0D, 0.0D);
             RobotLinkManager.notifyRobotDestroyed(this);
+            // Unregister last: the disconnect above may re-report the still loaded robot, and a destroyed
+            // machine must not stay a wake-up target (R27).
+            RobotRegistry registry = RobotRegistry.get(worldObj);
+            if (registry != null) {
+                registry.remove(getUniqueID());
+            }
         }
         setDead();
     }
@@ -177,15 +224,9 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
 
     public void setChannelData(ChannelData channelData) {
         this.channelData = channelData;
-    }
-
-    /** Where the robot stood when the last link ended, kept on the machine side of the pairing (R27). */
-    public LastKnownPosition getLastLinkPosition() {
-        return lastLinkPosition;
-    }
-
-    public void setLastLinkPosition(LastKnownPosition lastLinkPosition) {
-        this.lastLinkPosition = lastLinkPosition;
+        // A chip installed after spawning must be visible in the registry on the next tick, not one second
+        // later (R26 vs R27: the row only exists for a robot that answers on a channel).
+        positionReportPending = true;
     }
 
     @Override
@@ -194,11 +235,6 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
         tag.setInteger(NBT_STRUCTURAL_INTEGRITY, structuralIntegrity);
         if (channelData != null) {
             channelData.writeToNBT(tag);
-        }
-        if (lastLinkPosition != null) {
-            NBTTagCompound positionTag = new NBTTagCompound();
-            lastLinkPosition.writeToNBT(positionTag);
-            tag.setTag(NBT_LAST_LINK_POSITION, positionTag);
         }
     }
 
@@ -209,8 +245,10 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
             ? MathHelper.clamp_int(tag.getInteger(NBT_STRUCTURAL_INTEGRITY), 1, getMaxStructuralIntegrity())
             : getMaxStructuralIntegrity();
         channelData = ChannelData.readFromNBT(tag);
-        lastLinkPosition = tag.hasKey(NBT_LAST_LINK_POSITION)
-            ? LastKnownPosition.readFromNBT(tag.getCompoundTag(NBT_LAST_LINK_POSITION))
-            : null;
+        // The registry row is rewritten on the first tick after a load, so a restart never leaves the old
+        // coordinate (R27) and the helmet mirror can be refreshed from a fresh row.
+        positionReportPending = true;
+        lastReportedChunkX = UNKNOWN_CHUNK;
+        lastReportedChunkZ = UNKNOWN_CHUNK;
     }
 }

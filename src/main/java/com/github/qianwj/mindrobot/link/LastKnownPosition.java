@@ -4,14 +4,16 @@ import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.util.MathHelper;
 
 /**
- * Where a robot was last seen when a link ended (R27).
+ * Display mirror of a robot position, stored in the helmet NBT (R27 / D11).
  * <p>
- * The value is written into both sides of the pairing on every disconnect: the helmet stack the driver wore
- * and the robot entity itself. The helmet copy is what lets a player wake the machine again after a logout or
- * a restart, and the robot copy survives the helmet being lost or replaced.
+ * The authoritative position lives in {@link RobotRegistry}, written by the robot itself. This value is
+ * copied out of the registry (or out of the live entity) when a link opens or ends, purely so the player can
+ * read "where the machine last reported itself" in the item tooltip. It is never used to find or wake a robot:
+ * a reconnect asks the registry, so a helmet left in a chest or copied to another player cannot steer a wake-up
+ * to a stale coordinate.
  * <p>
  * This is deliberately separate from {@link ChannelData}: the channel is the pairing key and rarely changes,
- * while this position is rewritten on every disconnect.
+ * while this position is refreshed on every link.
  */
 public final class LastKnownPosition {
 

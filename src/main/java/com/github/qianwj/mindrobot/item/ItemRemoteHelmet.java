@@ -65,7 +65,10 @@ public class ItemRemoteHelmet extends ItemArmor {
         }
     }
 
-    /** Where the paired robot was standing when the last link ended (R27), or {@code null} when never recorded. */
+    /**
+     * Where the paired robot last reported itself (R27), or {@code null} when never recorded. This is a display
+     * mirror copied from {@code RobotRegistry}: the tooltip shows it, the connection flow never reads it.
+     */
     public static LastKnownPosition getLastKnownPosition(ItemStack stack) {
         if (stack == null || !stack.hasTagCompound()) {
             return null;
@@ -73,7 +76,7 @@ public class ItemRemoteHelmet extends ItemArmor {
         return LastKnownPosition.readFromNBT(stack.getTagCompound());
     }
 
-    /** Mirrors the robot position of a finished link into the helmet, so the player keeps the record (R27). */
+    /** Refreshes the display mirror; the server copies it out of the registry/live robot on link open and close. */
     public static void setLastKnownPosition(ItemStack stack, LastKnownPosition position) {
         if (stack == null) {
             return;
