@@ -37,6 +37,8 @@ gui.mindrobot.chip.invalid_private=名称需为 1 - 32 个字符，密码需为 
 
 gui.mindrobot.helmet.title=脑机头盔
 container.mindrobot.helmet=脑机头盔
+gui.mindrobot.robot.title=机器人
+container.mindrobot.robot=机器人
 
 chat.mindrobot.helmet.driving=驾驶机器人时不能打开头盔的芯片槽
 chat.mindrobot.chip.configured_public=芯片已设置为公共频道 %s

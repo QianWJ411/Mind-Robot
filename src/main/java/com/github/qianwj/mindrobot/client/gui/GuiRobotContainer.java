@@ -1,0 +1,72 @@
+package com.github.qianwj.mindrobot.client.gui;
+
+import net.minecraft.client.gui.inventory.GuiContainer;
+import net.minecraft.inventory.Slot;
+import net.minecraft.util.StatCollector;
+
+import com.github.qianwj.mindrobot.container.ContainerRobot;
+
+/**
+ * Screen of the robot item container (R35 / D15).
+ * <p>
+ * Like the helmet screen this one is painted with rectangles: the mod ships no container texture, and a missing
+ * one would show the purple checkerboard. The panel is wide enough for nine slot columns plus the two special
+ * slots on the right edge, and tall enough for the toolbar row, six backpack rows and the player inventory.
+ * Slot positions and recesses are read from the container, so the screen and the slot list never drift apart.
+ */
+public class GuiRobotContainer extends GuiContainer {
+
+    private static final int PANEL_WIDTH = 196;
+    private static final int PANEL_HEIGHT = 246;
+    private static final int SLOT_BACKGROUND = 18;
+
+    private static final int BORDER_COLOR = 0xFF000000;
+    private static final int PANEL_COLOR = 0xFFC6C6C6;
+    private static final int HIGHLIGHT_COLOR = 0xFFFFFFFF;
+    private static final int SHADOW_COLOR = 0xFF555555;
+    private static final int SLOT_FRAME_COLOR = 0xFF373737;
+    private static final int SLOT_FILL_COLOR = 0xFF8B8B8B;
+    private static final int LABEL_COLOR = 0x404040;
+
+    private static final int TITLE_X = 8;
+    private static final int TITLE_Y = 6;
+    private static final int INVENTORY_LABEL_Y = 152;
+
+    public GuiRobotContainer(ContainerRobot container) {
+        super(container);
+        this.xSize = PANEL_WIDTH;
+        this.ySize = PANEL_HEIGHT;
+    }
+
+    @Override
+    protected void drawGuiContainerBackgroundLayer(float partialTicks, int mouseX, int mouseY) {
+        int left = this.guiLeft;
+        int top = this.guiTop;
+        drawRect(left - 1, top - 1, left + this.xSize + 1, top + this.ySize + 1, BORDER_COLOR);
+        drawRect(left, top, left + this.xSize, top + this.ySize, PANEL_COLOR);
+        // One pixel bevel: light on the top and left edge, dark on the bottom and right edge.
+        drawRect(left, top, left + this.xSize, top + 1, HIGHLIGHT_COLOR);
+        drawRect(left, top, left + 1, top + this.ySize, HIGHLIGHT_COLOR);
+        drawRect(left, top + this.ySize - 1, left + this.xSize, top + this.ySize, SHADOW_COLOR);
+        drawRect(left + this.xSize - 1, top, left + this.xSize, top + this.ySize, SHADOW_COLOR);
+
+        for (int i = 0; i < this.inventorySlots.inventorySlots.size(); ++i) {
+            Slot slot = (Slot) this.inventorySlots.inventorySlots.get(i);
+            drawSlotBackground(left + slot.xDisplayPosition - 1, top + slot.yDisplayPosition - 1);
+        }
+    }
+
+    @Override
+    protected void drawGuiContainerForegroundLayer(int mouseX, int mouseY) {
+        fontRendererObj
+            .drawString(StatCollector.translateToLocal("gui.mindrobot.robot.title"), TITLE_X, TITLE_Y, LABEL_COLOR);
+        fontRendererObj
+            .drawString(StatCollector.translateToLocal("container.inventory"), TITLE_X, INVENTORY_LABEL_Y, LABEL_COLOR);
+    }
+
+    /** Draws the recessed square a vanilla slot has, so an empty special slot still reads as a slot. */
+    private void drawSlotBackground(int x, int y) {
+        drawRect(x, y, x + SLOT_BACKGROUND, y + SLOT_BACKGROUND, SLOT_FRAME_COLOR);
+        drawRect(x + 1, y + 1, x + SLOT_BACKGROUND - 1, y + SLOT_BACKGROUND - 1, SLOT_FILL_COLOR);
+    }
+}

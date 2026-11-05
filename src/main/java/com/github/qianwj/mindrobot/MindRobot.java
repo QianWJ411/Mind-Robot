@@ -13,7 +13,14 @@ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
 import cpw.mods.fml.common.event.FMLServerStoppingEvent;
 
-@Mod(modid = MindRobot.MODID, version = Tags.VERSION, name = "Mind-Robot", acceptedMinecraftVersions = "[1.7.10]")
+@Mod(
+    modid = MindRobot.MODID,
+    version = Tags.VERSION,
+    name = "Mind-Robot",
+    acceptedMinecraftVersions = "[1.7.10]",
+    // R38 / D16: GregTech 5 Unofficial is a hard prerequisite (its IC2 API is what the battery slot accepts),
+    // so a pack without GT refuses to load this mod instead of running half broken.
+    dependencies = "required-after:gregtech")
 public class MindRobot {
 
     public static final String MODID = "mindrobot";

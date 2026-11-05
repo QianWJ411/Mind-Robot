@@ -1,15 +1,22 @@
 package com.github.qianwj.mindrobot.entity;
 
+import java.util.List;
+
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.SharedMonsterAttributes;
+import net.minecraft.entity.item.EntityItem;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.util.DamageSource;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.World;
 
 import com.github.qianwj.mindrobot.api.IRobotCore;
+import com.github.qianwj.mindrobot.container.RobotGuiHandler;
 import com.github.qianwj.mindrobot.damage.RobotDamage;
+import com.github.qianwj.mindrobot.inventory.RobotInventory;
 import com.github.qianwj.mindrobot.link.ChannelData;
 import com.github.qianwj.mindrobot.link.RobotLinkManager;
 import com.github.qianwj.mindrobot.link.RobotRegistry;
@@ -42,6 +49,16 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
 
     private static final int EQUIPMENT_SLOTS = 5;
     private static final float DESTROY_EFFECT_HEIGHT_OFFSET = 0.5F;
+    /** Height above the feet a dropped stack leaves the body at; the vanilla item drop offset. */
+    private static final float DROP_HEIGHT_OFFSET = 0.5F;
+
+    /** How far the robot reaches for loose items, in blocks on every axis (R36). */
+    private static final double PICKUP_RANGE = 1.0D;
+    /** Pickup runs every 4 ticks: fast enough to feel automatic, cheap enough for a server tick. */
+    private static final int PICKUP_INTERVAL = 4;
+
+    /** Inventory compound key; the inventory writes its own {@code Items} list inside it. */
+    private static final String NBT_INVENTORY = "RobotInventory";
 
     /**
      * Channel snapshot of this robot (D5): the public number, or the private name plus password, and the
@@ -55,6 +72,8 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
     private int lastReportedChunkZ = UNKNOWN_CHUNK;
     /** Real durability of the chassis. */
     private int structuralIntegrity = DEFAULT_MAX_STRUCTURAL_INTEGRITY;
+    /** The 65 slot item storage (R35 / D15); created for both sides so the container always has a target. */
+    private final RobotInventory robotInventory = new RobotInventory(this);
 
     public EntityRobot(World world) {
         super(world);
@@ -83,6 +102,8 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
      * A row is written every {@link #POSITION_REPORT_INTERVAL} ticks, immediately after a chunk border
      * crossing, and once on the first tick after the entity was loaded from disk (so a restart never leaves a
      * stale coordinate behind). Client side copies never report.
+     * <p>
+     * The same server tick also runs the automatic pickup (R36).
      */
     @Override
     public void onEntityUpdate() {
@@ -91,6 +112,81 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
             return;
         }
         reportPosition();
+        if (ticksExisted % PICKUP_INTERVAL == 0) {
+            collectNearbyItems();
+        }
+    }
+
+    /**
+     * Automatic pickup (R36): every loose item within {@link #PICKUP_RANGE} of the body is moved into the
+     * backpack, or into the toolbar once the backpack is full.
+     * <p>
+     * The grid it writes into is chosen by {@link RobotInventory#insertIntoBackpack(ItemStack)} and that method
+     * only ever touches slots 0..62 - the chip and the battery slot are not part of its range and
+     * {@link RobotInventory#acceptsStorage(ItemStack)} turns a chip or a battery away before the insert is even
+     * attempted, so no pickup can reach slot 63 or 64.
+     */
+    private void collectNearbyItems() {
+        if (isDead || !isEntityAlive()) {
+            return;
+        }
+        AxisAlignedBB area = boundingBox.expand(PICKUP_RANGE, PICKUP_RANGE, PICKUP_RANGE);
+        List<EntityItem> items = worldObj.getEntitiesWithinAABB(EntityItem.class, area);
+        for (EntityItem item : items) {
+            absorb(item);
+        }
+    }
+
+    /** Picks up what fits and leaves the rest lying on the ground, never dropping the remainder. */
+    private void absorb(EntityItem item) {
+        if (item == null || item.isDead || item.delayBeforeCanPickup > 0) {
+            return;
+        }
+        ItemStack stack = item.getEntityItem();
+        if (stack == null || stack.stackSize <= 0 || !RobotInventory.acceptsStorage(stack)) {
+            return;
+        }
+        int available = stack.stackSize;
+        // Work on a copy: the watcher only syncs a new stack object to the client, and a partial pickup must
+        // show the reduced size instead of a ghost item.
+        ItemStack leftover = robotInventory.insertIntoBackpack(stack.copy());
+        int picked = available - (leftover == null ? 0 : leftover.stackSize);
+        if (picked <= 0) {
+            return;
+        }
+        // Vanilla pickup bookkeeping: the collect animation for every tracker, then the body hook.
+        onItemPickup(item, picked);
+        worldObj
+            .playSoundAtEntity(this, "random.pop", 0.2F, ((rand.nextFloat() - rand.nextFloat()) * 0.7F + 1.0F) * 2.0F);
+        if (leftover == null || leftover.stackSize <= 0) {
+            item.setDead();
+        } else {
+            item.setEntityItemStack(leftover);
+        }
+    }
+
+    /** The 65 slot storage of this body (R35 / D15). */
+    public RobotInventory getInventory() {
+        return robotInventory;
+    }
+
+    /**
+     * Player right click on the body (R35 / D15).
+     * <p>
+     * The robot extends {@link EntityLivingBase} directly, so it inherits {@code Entity.interactFirst}, the
+     * non final hook {@code EntityPlayer.interactWith} calls before any held item may react - this is the
+     * stable path that works on both sides without consuming anything. The client answers true so a click does
+     * not also turn into a local item use; the server alone decides whether a screen opens.
+     */
+    @Override
+    public boolean interactFirst(EntityPlayer player) {
+        if (player == null || worldObj == null) {
+            return false;
+        }
+        if (worldObj.isRemote) {
+            return true;
+        }
+        return RobotGuiHandler.open(player, this);
     }
 
     /** Writes the registry row when one of the three triggers fires; otherwise does nothing. */
@@ -200,6 +296,8 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
             double effectY = posY + height * DESTROY_EFFECT_HEIGHT_OFFSET;
             worldObj.playSoundEffect(posX, effectY, posZ, "random.explode", 1.0F, 1.0F);
             worldObj.spawnParticle("largeexplode", posX, effectY, posZ, 0.0D, 0.0D, 0.0D);
+            // D15: a wreck drops what it carried instead of swallowing the player's items.
+            dropInventory();
             RobotLinkManager.notifyRobotDestroyed(this);
             // Unregister last: the disconnect above may re-report the still loaded robot, and a destroyed
             // machine must not stay a wake-up target (R27).
@@ -209,6 +307,18 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
             }
         }
         setDead();
+    }
+
+    /** Drops every stored stack at the wreck position, one entity item per slot, like any other container. */
+    private void dropInventory() {
+        for (int index = 0; index < robotInventory.getSizeInventory(); ++index) {
+            ItemStack stack = robotInventory.getStackInSlot(index);
+            if (stack == null) {
+                continue;
+            }
+            entityDropItem(stack, DROP_HEIGHT_OFFSET);
+            robotInventory.setInventorySlotContents(index, null);
+        }
     }
 
     /** Safety net: even a direct {@code onDeath} call is redirected away from the vanilla pipeline. */
@@ -236,6 +346,9 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
         if (channelData != null) {
             channelData.writeToNBT(tag);
         }
+        NBTTagCompound inventoryTag = new NBTTagCompound();
+        robotInventory.writeToNBT(inventoryTag);
+        tag.setTag(NBT_INVENTORY, inventoryTag);
     }
 
     @Override
@@ -245,6 +358,9 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
             ? MathHelper.clamp_int(tag.getInteger(NBT_STRUCTURAL_INTEGRITY), 1, getMaxStructuralIntegrity())
             : getMaxStructuralIntegrity();
         channelData = ChannelData.readFromNBT(tag);
+        if (tag.hasKey(NBT_INVENTORY)) {
+            robotInventory.readFromNBT(tag.getCompoundTag(NBT_INVENTORY));
+        }
         // The registry row is rewritten on the first tick after a load, so a restart never leaves the old
         // coordinate (R27) and the helmet mirror can be refreshed from a fresh row.
         positionReportPending = true;

@@ -37,6 +37,8 @@ gui.mindrobot.chip.invalid_private=The name must be 1 - 32 characters and the pa
 
 gui.mindrobot.helmet.title=Brain-Computer Helmet
 container.mindrobot.helmet=Brain-Computer Helmet
+gui.mindrobot.robot.title=Robot
+container.mindrobot.robot=Robot
 
 chat.mindrobot.helmet.driving=Leave the robot before opening the helmet chip slot
 chat.mindrobot.chip.configured_public=Chip set to public channel %s

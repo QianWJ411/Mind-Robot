@@ -81,6 +81,14 @@ public final class RobotLinkManager {
     }
 
     /**
+     * True when the robot is linked to a driver, whoever that is. The item container uses this to keep a
+     * machine that is being driven sealed while it is under control (R10 / D15); a parked robot stays open.
+     */
+    public static boolean isRobotDriven(EntityRobot robot) {
+        return robot != null && LINKS_BY_ROBOT.containsKey(robot.getUniqueID());
+    }
+
+    /**
      * Single public disconnect entry point (D4). Unbinds the link, releases the forced chunk ticket and tells
      * the owning client to give the camera back. The ticket is released even when no link is registered, so a
      * desynchronised table can never leak a ticket.
