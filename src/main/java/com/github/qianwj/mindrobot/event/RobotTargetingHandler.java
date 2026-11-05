@@ -166,16 +166,16 @@ public class RobotTargetingHandler {
     /** Selects robots as targets. */
     private static final class RobotTargetTask extends EntityAINearestAttackableTarget {
 
-        RobotTargetTask(EntityCreature owner) {
-            super(owner, EntityRobot.class, TARGET_CHANCE, TARGET_CHECK_SIGHT);
+        RobotTargetTask(EntityCreature mob) {
+            super(mob, EntityRobot.class, TARGET_CHANCE, TARGET_CHECK_SIGHT);
         }
     }
 
     /** Chases and hits robots; without it the mob would hold a robot target and never attack. */
     private static final class RobotAttackTask extends EntityAIAttackOnCollide {
 
-        RobotAttackTask(EntityCreature owner) {
-            super(owner, EntityRobot.class, ATTACK_SPEED, ATTACK_LONG_MEMORY);
+        RobotAttackTask(EntityCreature mob) {
+            super(mob, EntityRobot.class, ATTACK_SPEED, ATTACK_LONG_MEMORY);
         }
     }
 }

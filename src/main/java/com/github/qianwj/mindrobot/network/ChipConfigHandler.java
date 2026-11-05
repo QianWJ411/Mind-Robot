@@ -16,6 +16,9 @@ import cpw.mods.fml.common.network.simpleimpl.MessageContext;
  * Server side handler for {@link ChipConfigMessage}. Packets are decoded on the netty thread and the
  * inventory/NBT write happens on the server thread, so the work is queued and drained at the start of the
  * next server tick, exactly like the radial menu requests.
+ * <p>
+ * The payload is re-validated on the server thread ({@link ItemFrequencyChip#applyConfiguration}): a forged
+ * private request with a blank name or password is answered with a chat line and never written.
  */
 public class ChipConfigHandler implements IMessageHandler<ChipConfigMessage, IMessage> {
 
@@ -27,15 +30,17 @@ public class ChipConfigHandler implements IMessageHandler<ChipConfigMessage, IMe
         if (player == null) {
             return null;
         }
-        final int channel = message.getChannel();
         final ChannelMode mode = message.getMode();
+        final int channel = message.getChannel();
+        final String name = message.getName();
+        final String password = message.getPassword();
         PENDING_REQUESTS.add(new Runnable() {
 
             @Override
             public void run() {
                 // The player may have logged out between decoding and the server tick.
                 if (player.playerNetServerHandler != null) {
-                    ItemFrequencyChip.applyConfiguration(player, channel, mode);
+                    ItemFrequencyChip.applyConfiguration(player, mode, channel, name, password);
                 }
             }
         });

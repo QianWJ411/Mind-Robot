@@ -44,8 +44,8 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
     private static final float DESTROY_EFFECT_HEIGHT_OFFSET = 0.5F;
 
     /**
-     * Channel snapshot of this robot (D5): the channel number, the private/public mode and the owner that
-     * configured it. {@code null} until an assembly table (P3) or {@code /mindrobot spawn} assigns one.
+     * Channel snapshot of this robot (D5): the public number, or the private name plus password, and the
+     * public/private mode. {@code null} until an assembly table (P3) or {@code /mindrobot spawn} assigns one.
      */
     private ChannelData channelData;
     /** Forced true on every load from NBT, so the first tick after a restart re-registers the robot (R27). */

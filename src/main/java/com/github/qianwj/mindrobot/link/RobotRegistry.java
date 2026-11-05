@@ -1,11 +1,7 @@
 package com.github.qianwj.mindrobot.link;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -18,12 +14,12 @@ import net.minecraft.world.WorldSavedData;
 import com.github.qianwj.mindrobot.entity.EntityRobot;
 
 /**
- * World level registry of robot positions (R27 / D11).
+ * World level registry of robot positions and channel snapshots (R27 / D11).
  * <p>
  * The robot owns its own position: it writes a row into this registry every 20 ticks, on every chunk border
  * crossing, once on the first tick after being loaded from disk and once more when a link ends. The registry is
  * a {@link WorldSavedData}, so it can be read while the robot chunk - and therefore the robot entity - is not
- * loaded, which is exactly what makes it usable as a wake-up source.
+ * loaded, which is exactly what makes it usable as a wake-up source for private channels (R28).
  * <p>
  * The position stored in the helmet is a display mirror only: it is refreshed from here when a link opens or
  * ends and is never consulted to wake a chunk.
@@ -35,6 +31,9 @@ import com.github.qianwj.mindrobot.entity.EntityRobot;
  * Rows are written to disk by {@code MapStorage#saveAllData()} ({@code MapStorage.java:113}), which the server
  * calls from {@code WorldServer#saveLevel()} ({@code WorldServer.java:898}) on every autosave and on world
  * unload; this class therefore only marks itself dirty after each change.
+ * <p>
+ * A private row stores the password in plain text (see {@link ChannelData}): the server operator can repair a
+ * forgotten password by editing {@code <world>/data/mindrobot_robots.dat} while the world is stopped.
  */
 public final class RobotRegistry extends WorldSavedData {
 
@@ -49,18 +48,6 @@ public final class RobotRegistry extends WorldSavedData {
     private static final String NBT_Z = "z";
     private static final String NBT_DIMENSION = "dim";
     private static final String NBT_LAST_REPORT = "lastReport";
-
-    /** Newest report first; a channel normally maps to a single robot, this only orders debug duplicates. */
-    private static final Comparator<Entry> NEWEST_FIRST = new Comparator<Entry>() {
-
-        @Override
-        public int compare(Entry left, Entry right) {
-            if (left.getLastReportTick() == right.getLastReportTick()) {
-                return 0;
-            }
-            return left.getLastReportTick() > right.getLastReportTick() ? -1 : 1;
-        }
-    };
 
     private final Map<UUID, Entry> entries = new HashMap<UUID, Entry>();
 
@@ -102,7 +89,7 @@ public final class RobotRegistry extends WorldSavedData {
         }
         UUID robotId = robot.getUniqueID();
         ChannelData channel = robot.getChannelData();
-        if (channel == null) {
+        if (channel == null || !channel.isConfigured()) {
             remove(robotId);
             return;
         }
@@ -185,47 +172,58 @@ public final class RobotRegistry extends WorldSavedData {
     }
 
     /**
-     * Every row of one channel, newest report first, across all dimensions.
-     * <p>
-     * No distance ordering is applied here because a distance needs a reference point; use
-     * {@link #findMostRecent(int, int, double, double)} when the caller has one.
-     */
-    public List<Entry> findByChannel(int channel) {
-        List<Entry> result = new ArrayList<Entry>();
-        for (Entry entry : entries.values()) {
-            if (entry.getChannel() == channel) {
-                result.add(entry);
-            }
-        }
-        Collections.sort(result, NEWEST_FIRST);
-        return result;
-    }
-
-    /**
-     * The row a reconnect should wake: same channel, same dimension, newest report first, and when two rows
-     * share the same report tick the one closest to the reference point wins (only debug duplicates can
-     * produce that situation).
+     * The newest row of a public channel in one dimension, used by read-only diagnostics. Public channels are
+     * never woken from this registry (R28): the caller only reports that a registered robot exists but is not
+     * loaded, it must not force a chunk from this result.
      *
-     * @return the best row, or {@code null} when no robot of that channel was ever reported in that dimension
+     * @return the newest row, or {@code null} when no public robot of that number was ever reported there
      */
-    public Entry findMostRecent(int channel, int dimension, double referenceX, double referenceZ) {
+    public Entry findPublic(int channel, int dimension) {
         Entry best = null;
         for (Entry entry : entries.values()) {
-            if (entry.getChannel() != channel || entry.getDimension() != dimension) {
+            if (!entry.isPublic() || entry.getChannel() != channel || entry.getDimension() != dimension) {
                 continue;
             }
-            if (best == null || prefer(entry, best, referenceX, referenceZ)) {
+            if (best == null || entry.getLastReportTick() > best.getLastReportTick()) {
                 best = entry;
             }
         }
         return best;
     }
 
-    private static boolean prefer(Entry candidate, Entry current, double referenceX, double referenceZ) {
-        if (candidate.getLastReportTick() != current.getLastReportTick()) {
-            return candidate.getLastReportTick() > current.getLastReportTick();
+    /**
+     * The newest row whose private credentials match exactly (name and plain text password), used by R28 to
+     * decide whether a private channel is allowed to wake its chunk.
+     *
+     * @return the matching row, or {@code null} when the name does not exist or the password differs
+     */
+    public Entry findPrivate(String name, String password, int dimension) {
+        Entry best = null;
+        for (Entry entry : entries.values()) {
+            if (entry.getDimension() != dimension || !entry.matchesPrivate(name, password)) {
+                continue;
+            }
+            if (best == null || entry.getLastReportTick() > best.getLastReportTick()) {
+                best = entry;
+            }
         }
-        return candidate.distanceSqTo(referenceX, referenceZ) < current.distanceSqTo(referenceX, referenceZ);
+        return best;
+    }
+
+    /**
+     * True when a private channel of that name exists in the dimension, used only to tell a wrong password
+     * apart from an unknown name in the refusal message.
+     */
+    public boolean hasPrivateName(String name, int dimension) {
+        if (name == null) {
+            return false;
+        }
+        for (Entry entry : entries.values()) {
+            if (entry.getDimension() == dimension && entry.isPrivate() && name.equals(entry.getName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -239,6 +237,8 @@ public final class RobotRegistry extends WorldSavedData {
             NBTTagCompound entryTag = list.getCompoundTagAt(i);
             UUID robotId = parseUuid(entryTag.getString(NBT_ID));
             Entry entry = Entry.readFromNBT(entryTag);
+            // A row written by the replaced channel format has no complete snapshot and is dropped silently:
+            // this mod has never shipped, so there is nothing to migrate.
             if (robotId != null && entry != null) {
                 entries.put(robotId, entry);
             }
@@ -273,7 +273,11 @@ public final class RobotRegistry extends WorldSavedData {
         }
     }
 
-    /** One robot: its channel snapshot, its last reported position, the dimension and the report tick. */
+    /**
+     * One robot: its channel snapshot, its last reported position, the dimension and the report tick. The
+     * snapshot is either a public number or a private name plus plain text password; the password is never
+     * exposed through a getter.
+     */
     public static final class Entry {
 
         private final ChannelData channel;
@@ -299,7 +303,7 @@ public final class RobotRegistry extends WorldSavedData {
          */
         static Entry readFromNBT(NBTTagCompound tag) {
             ChannelData channel = ChannelData.readFromNBT(tag);
-            if (channel == null) {
+            if (channel == null || !channel.isConfigured()) {
                 return null;
             }
             return new Entry(
@@ -320,6 +324,7 @@ public final class RobotRegistry extends WorldSavedData {
             tag.setLong(NBT_LAST_REPORT, lastReportTick);
         }
 
+        /** The public channel number, or -1 for a private row. */
         public int getChannel() {
             return channel.getChannel();
         }
@@ -328,13 +333,26 @@ public final class RobotRegistry extends WorldSavedData {
             return channel.getMode();
         }
 
-        public UUID getOwner() {
-            return channel.getOwner();
+        public boolean isPublic() {
+            return channel.isPublic();
+        }
+
+        public boolean isPrivate() {
+            return channel.isPrivate();
+        }
+
+        /** The private channel name, or {@code null} for a public row. */
+        public String getName() {
+            return channel.getName();
         }
 
         /** The full channel snapshot, reusable for the D5 checks without rebuilding one. */
         public ChannelData getChannelData() {
             return channel;
+        }
+
+        boolean matchesPrivate(String name, String password) {
+            return channel.isPrivate() && channel.matchesPrivate(name, password);
         }
 
         public double getX() {
@@ -375,13 +393,6 @@ public final class RobotRegistry extends WorldSavedData {
 
         public int getChunkZ() {
             return MathHelper.floor_double(z) >> 4;
-        }
-
-        /** Squared horizontal distance, used only to break a report-tick tie. */
-        public double distanceSqTo(double referenceX, double referenceZ) {
-            double deltaX = x - referenceX;
-            double deltaZ = z - referenceZ;
-            return deltaX * deltaX + deltaZ * deltaZ;
         }
 
         /** Renders the row as the helmet mirror value (tooltip only, never a wake-up source). */

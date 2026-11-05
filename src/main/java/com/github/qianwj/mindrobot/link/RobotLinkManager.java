@@ -11,6 +11,7 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.ChatComponentTranslation;
+import net.minecraft.util.IChatComponent;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.World;
 
@@ -23,12 +24,13 @@ import com.github.qianwj.mindrobot.network.ModNetwork;
 /**
  * Server side connection table between players and robots.
  * <p>
- * Pairing is channel based (D5): a helmet only stores a channel snapshot, the robot that answers on that
- * channel is looked up in the world at connect time. When no robot is loaded, {@link RobotRegistry} - the
- * world level table the robots report themselves into (R27 / D11) - provides the chunk to wake; the helmet
- * copy of the position is a tooltip mirror and is never read here. {@link #requestEnter(EntityPlayerMP)} is
- * the single server side entry point and walks the D5 validation order, telling the player the exact reason
- * whenever it refuses.
+ * Pairing is channel based (R22 / D5): a helmet stores a snapshot - a public number, or a private name plus
+ * password. A public channel is resolved only among the robots that are loaded right now (R28); a private
+ * channel may wake the chunk recorded for it in {@link RobotRegistry} - the world level table the robots
+ * report themselves into (R27 / D11) - and retry for a bounded number of ticks. The helmet copy of the
+ * position is a tooltip mirror and is never read here. {@link #requestEnter(EntityPlayerMP)} is the single
+ * server side entry point and walks the D5 validation order, telling the player the exact reason whenever it
+ * refuses.
  * <p>
  * {@link #disconnect(EntityPlayer, DisconnectReason)} is the only public way to end a connection (D4): every
  * end path (body death, robot death, menu exit, logout, dimension change, server stop, helmet loss) funnels
@@ -39,7 +41,7 @@ public final class RobotLinkManager {
     private static final Map<UUID, RobotLink> LINKS_BY_PLAYER = new HashMap<UUID, RobotLink>();
     private static final Map<UUID, RobotLink> LINKS_BY_ROBOT = new HashMap<UUID, RobotLink>();
 
-    /** Connection attempts waiting for a registered chunk to load (R27). */
+    /** Private connection attempts waiting for a registered chunk to load (R28). */
     private static final Map<UUID, PendingEnter> PENDING_ENTERS = new HashMap<UUID, PendingEnter>();
 
     /**
@@ -52,9 +54,10 @@ public final class RobotLinkManager {
     private static final float ANCHOR_ROTATION_EPSILON = 0.1F;
     private static final int WAKE_TIMEOUT_TICKS = 60;
 
-    /** A connection that is being retried while the registered chunk loads back in (R27). */
+    /** A private connection that is being retried while the registered chunk loads back in (R27 / R28). */
     private static final class PendingEnter {
 
+        /** The private helmet credentials; public channels never wait for a wake (R28). */
         private final ChannelData channel;
         private final int chunkX;
         private final int chunkZ;
@@ -165,7 +168,13 @@ public final class RobotLinkManager {
     /**
      * Validates and opens a connection. The server decides, the client never does (D6).
      * <p>
-     * Validation order is exactly D5: helmet channel present, channel match, private ownership, free robot.
+     * R28 splits the two retrieval paths:
+     * <ul>
+     * <li>a public helmet only looks at the robots that are loaded right now; a public channel number never
+     * forces a chunk in, so a miss is a plain refusal;</li>
+     * <li>a private helmet is allowed to wake its robot: the plain text name and password are looked up in
+     * {@link RobotRegistry}, and only a matching pair may force the registered chunk in.</li>
+     * </ul>
      * Every refusal is reported through {@link LinkDenial}, never silently.
      */
     public static void requestEnter(EntityPlayerMP player) {
@@ -188,12 +197,23 @@ public final class RobotLinkManager {
             LinkDenial.HELMET_UNPAIRED.send(player);
             return;
         }
+        if (!helmetChannel.isConfigured()) {
+            LinkDenial.HELMET_UNCONFIGURED.send(player);
+            return;
+        }
 
-        EntityRobot robot = findRobotByChannel(player.worldObj, helmetChannel, player);
+        if (helmetChannel.isPublic()) {
+            requestPublic(player, helmetChannel);
+        } else {
+            requestPrivate(player, helmetChannel);
+        }
+    }
+
+    /** R28 public path: loaded robots only; a channel number never forces a chunk in. */
+    private static void requestPublic(EntityPlayerMP player, ChannelData helmetChannel) {
+        EntityRobot robot = findLoadedRobot(player.worldObj, helmetChannel, player);
         if (robot == null) {
-            if (scheduleWake(player, helmetChannel)) {
-                return;
-            }
+            reportRegisteredButUnloaded(player, helmetChannel);
             LinkDenial.NO_ROBOT.send(player, helmetChannel.getChannel());
             return;
         }
@@ -201,60 +221,75 @@ public final class RobotLinkManager {
     }
 
     /**
-     * R27: no robot is loaded, so the world level registry decides. When it holds a row for the helmet
-     * channel in this dimension, the chunk of that row is forced back in and the request is retried for a
-     * bounded number of ticks instead of being refused outright. The helmet copy of the position is not
-     * consulted, it is a display mirror only.
+     * Diagnostic only: when the registry still knows a public robot that is not loaded, that is logged, but
+     * nothing is woken (R28). A registry row must never become a forced chunk on a public channel.
      */
-    private static boolean scheduleWake(EntityPlayerMP player, ChannelData helmetChannel) {
-        if (PENDING_ENTERS.containsKey(player.getUniqueID())) {
-            return true;
-        }
+    private static void reportRegisteredButUnloaded(EntityPlayerMP player, ChannelData helmetChannel) {
         RobotRegistry registry = RobotRegistry.get(player.worldObj);
         if (registry == null) {
-            return false;
+            return;
         }
-        RobotRegistry.Entry record = registry
-            .findMostRecent(helmetChannel.getChannel(), player.dimension, player.posX, player.posZ);
+        RobotRegistry.Entry record = registry.findPublic(helmetChannel.getChannel(), player.dimension);
+        if (record != null) {
+            MindRobot.LOG.info(
+                "Public channel {} has a registered robot at [{},{},{}] but it is not loaded; public channels never wake a chunk (R28)",
+                Integer.valueOf(helmetChannel.getChannel()),
+                Integer.valueOf(record.getBlockX()),
+                Integer.valueOf(record.getBlockY()),
+                Integer.valueOf(record.getBlockZ()));
+        }
+    }
+
+    /** R28 private path: the credentials are the wake authorisation, then a bounded wake retry follows. */
+    private static void requestPrivate(EntityPlayerMP player, ChannelData helmetChannel) {
+        EntityRobot loaded = findLoadedRobot(player.worldObj, helmetChannel, player);
+        if (loaded != null) {
+            openLink(player, loaded, helmetChannel);
+            return;
+        }
+        RobotRegistry registry = RobotRegistry.get(player.worldObj);
+        RobotRegistry.Entry record = registry == null ? null
+            : registry.findPrivate(helmetChannel.getName(), helmetChannel.getPassword(), player.dimension);
         if (record == null) {
-            return false;
+            sendPrivateMiss(player, helmetChannel, registry);
+            return;
         }
-        // A private channel owned by somebody else is refused before a single chunk is forced for it.
-        ChannelData recordChannel = record.getChannelData();
-        if (recordChannel != null && recordChannel.isPrivate() && !recordChannel.isOwnedBy(helmetChannel.getOwner())) {
-            LinkDenial.PRIVATE_OWNER.send(player, helmetChannel.getChannel());
-            return true;
+        if (PENDING_ENTERS.containsKey(player.getUniqueID())) {
+            return;
         }
         PENDING_ENTERS.put(player.getUniqueID(), new PendingEnter(helmetChannel, record));
         RobotChunkLoader.forceAt(player.getUniqueID(), player.worldObj, record.getChunkX(), record.getChunkZ());
         player.addChatMessage(
             new ChatComponentTranslation(
                 "chat.mindrobot.link.waking",
-                record.getBlockX(),
-                record.getBlockY(),
-                record.getBlockZ()));
-        return true;
+                helmetChannel.getName(),
+                Integer.valueOf(record.getBlockX()),
+                Integer.valueOf(record.getBlockY()),
+                Integer.valueOf(record.getBlockZ())));
+    }
+
+    /** Tells a wrong password apart from an unknown private name, without ever echoing the password. */
+    private static void sendPrivateMiss(EntityPlayerMP player, ChannelData helmetChannel, RobotRegistry registry) {
+        boolean nameKnown = hasLoadedPrivateName(player.worldObj, helmetChannel.getName())
+            || (registry != null && registry.hasPrivateName(helmetChannel.getName(), player.dimension));
+        if (nameKnown) {
+            LinkDenial.PRIVATE_PASSWORD.send(player, helmetChannel.getName());
+        } else {
+            LinkDenial.NO_ROBOT_PRIVATE.send(player, helmetChannel.getName());
+        }
     }
 
     /** Opens the link once every D5 rule passed; used both by a direct request and by the wake retry. */
     private static void openLink(EntityPlayerMP player, EntityRobot robot, ChannelData helmetChannel) {
-        // D5 step 2: channels must be identical.
+        // D5 step 2: both sides must still answer on the same channel (public number, or private credentials).
         ChannelData robotChannel = robot.getChannelData();
-        if (robotChannel == null || !helmetChannel.matchesChannel(robotChannel)) {
-            LinkDenial.CHANNEL_MISMATCH.send(
-                player,
-                helmetChannel.getChannel(),
-                robotChannel == null ? "?" : Integer.valueOf(robotChannel.getChannel()));
+        if (robotChannel == null || !robotChannel.isConfigured() || !helmetChannel.matches(robotChannel)) {
+            LinkDenial.CHANNEL_MISMATCH.send(player);
             return;
         }
-        // D5 step 3: a private robot only accepts its own owner, even on the same number.
-        if (robotChannel.isPrivate() && !robotChannel.isOwnedBy(helmetChannel.getOwner())) {
-            LinkDenial.PRIVATE_OWNER.send(player, robotChannel.getChannel());
-            return;
-        }
-        // D5 steps 4 and 5: a public robot takes any same channel driver, but only one at a time (R13).
+        // D5 steps 3 and 4: a robot takes any same channel driver, but only one at a time (R13/R25).
         if (LINKS_BY_ROBOT.containsKey(robot.getUniqueID())) {
-            LinkDenial.ROBOT_OCCUPIED.send(player, robotChannel.getChannel());
+            LinkDenial.sendOccupied(player, robotChannel);
             return;
         }
 
@@ -268,13 +303,21 @@ public final class RobotLinkManager {
             "Robot link opened: player={} robot={} channel={} anchor=[{},{},{}]",
             player.getCommandSenderName(),
             robot.getUniqueID(),
-            robotChannel.getChannel(),
+            robotChannel,
             link.getAnchorX(),
             link.getAnchorY(),
             link.getAnchorZ());
 
-        player.addChatMessage(new ChatComponentTranslation("chat.mindrobot.link.connected", robotChannel.getChannel()));
+        player.addChatMessage(connectedMessage(robotChannel));
         ModNetwork.syncLinkState(player);
+    }
+
+    /** The connected chat line names the number for a public channel and the name for a private one. */
+    private static IChatComponent connectedMessage(ChannelData robotChannel) {
+        if (robotChannel.isPrivate()) {
+            return new ChatComponentTranslation("chat.mindrobot.link.connected_private", robotChannel.getName());
+        }
+        return new ChatComponentTranslation("chat.mindrobot.link.connected_public", robotChannel.getChannel());
     }
 
     /** Copies the current robot position into the worn helmet; tooltip only, never a wake-up source (D11). */
@@ -297,9 +340,9 @@ public final class RobotLinkManager {
         if (link == null) {
             return;
         }
-        EntityPlayer owner = findPlayer(link.getPlayerId());
-        if (owner != null) {
-            disconnect(owner, DisconnectReason.ROBOT_DESTROYED);
+        EntityPlayer linkedPlayer = findPlayer(link.getPlayerId());
+        if (linkedPlayer != null) {
+            disconnect(linkedPlayer, DisconnectReason.ROBOT_DESTROYED);
         } else {
             LINKS_BY_ROBOT.remove(robot.getUniqueID());
             LINKS_BY_PLAYER.remove(link.getPlayerId());
@@ -408,13 +451,13 @@ public final class RobotLinkManager {
         return robot == null ? -1 : robot.getEntityId();
     }
 
-    /** Retries the requested channel every tick until the forced chunk loads the robot back in (R27). */
+    /** Retries the requested private channel every tick until the forced chunk loads the robot back in (R28). */
     private static void tickPendingEnter(EntityPlayerMP player) {
         PendingEnter pending = PENDING_ENTERS.get(player.getUniqueID());
         if (pending == null) {
             return;
         }
-        EntityRobot robot = findRobotByChannel(player.worldObj, pending.channel, player);
+        EntityRobot robot = findLoadedRobot(player.worldObj, pending.channel, player);
         if (robot != null) {
             PENDING_ENTERS.remove(player.getUniqueID());
             openLink(player, robot, pending.channel);
@@ -428,7 +471,7 @@ public final class RobotLinkManager {
             if (registry != null) {
                 registry.pruneStale(player.worldObj);
             }
-            LinkDenial.NO_ROBOT.send(player, pending.channel.getChannel());
+            LinkDenial.NO_ROBOT_PRIVATE.send(player, pending.channel.getName());
             return;
         }
         RobotChunkLoader.forceAt(player.getUniqueID(), player.worldObj, pending.chunkX, pending.chunkZ);
@@ -463,10 +506,11 @@ public final class RobotLinkManager {
     }
 
     /**
-     * Finds the robot that answers on the given channel in this world. When several robots share a channel
-     * (only possible through debug spawning) the nearest one wins, so the choice is deterministic.
+     * Finds the loaded robot that answers on the given channel in this world (R28: the only retrieval path a
+     * public channel has). When several robots share a channel (only possible through debug spawning) the
+     * nearest one wins, so the choice is deterministic.
      */
-    private static EntityRobot findRobotByChannel(World world, ChannelData channel, EntityPlayer player) {
+    private static EntityRobot findLoadedRobot(World world, ChannelData channel, EntityPlayer player) {
         if (world == null || channel == null) {
             return null;
         }
@@ -477,7 +521,7 @@ public final class RobotLinkManager {
                 continue;
             }
             EntityRobot robot = (EntityRobot) candidate;
-            if (robot.isDead || !channel.matchesChannel(robot.getChannelData())) {
+            if (robot.isDead || !channel.matches(robot.getChannelData())) {
                 continue;
             }
             double distance = player == null ? 0.0D : robot.getDistanceSqToEntity(player);
@@ -487,6 +531,23 @@ public final class RobotLinkManager {
             }
         }
         return nearest;
+    }
+
+    /** True when a loaded robot already answers on this private name (used only to explain a refusal). */
+    private static boolean hasLoadedPrivateName(World world, String name) {
+        if (world == null || name == null) {
+            return false;
+        }
+        for (Object candidate : world.loadedEntityList) {
+            if (!(candidate instanceof EntityRobot)) {
+                continue;
+            }
+            ChannelData data = ((EntityRobot) candidate).getChannelData();
+            if (data != null && data.isPrivate() && name.equals(data.getName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static EntityRobot findRobot(World world, UUID robotId) {

@@ -1,17 +1,18 @@
 package com.github.qianwj.mindrobot.link;
 
 /**
- * Visibility of a frequency channel (R22).
+ * Channel type decided by the frequency chip (R22).
  * <p>
- * {@link #PRIVATE} channels only accept the player that configured the channel, {@link #PUBLIC} channels
- * accept anyone holding a helmet with the same number. The value is persisted by name so a reordered enum
- * never changes the meaning of existing NBT.
+ * {@link #PUBLIC} channels are identified by a number: any chip with the same number pairs, and the first
+ * driver wins (R13/R25). {@link #PRIVATE} channels are identified by a custom name plus a password: both must
+ * match, and no player identity is stored at all. The value is persisted by name so a reordered enum never
+ * changes the meaning of existing NBT.
  */
 public enum ChannelMode {
 
-    /** Only the owner recorded in the channel data may connect. */
+    /** A name plus a password identify the channel; only a matching pair may connect. */
     PRIVATE("private"),
-    /** Anyone with the same channel number may connect (one driver at a time, R13). */
+    /** A number identifies the channel; anyone with the same number may connect (one driver at a time, R13). */
     PUBLIC("public");
 
     private final String nbtName;
@@ -28,7 +29,8 @@ public enum ChannelMode {
      * Reads a mode written by {@link #getNbtName()}.
      *
      * @return the matching mode, or {@link #PRIVATE} when the tag is missing or unknown (the conservative
-     *         choice: an unreadable mode never widens access)
+     *         choice: an unreadable mode never widens access). Callers that must reject corrupt data compare
+     *         the returned {@link #getNbtName()} with the input instead.
      */
     public static ChannelMode byNbtName(String nbtName) {
         if (nbtName != null) {

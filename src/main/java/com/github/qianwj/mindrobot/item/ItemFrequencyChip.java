@@ -9,7 +9,6 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.util.ChatComponentTranslation;
 import net.minecraft.util.EnumChatFormatting;
-import net.minecraft.util.IChatComponent;
 import net.minecraft.util.StatCollector;
 import net.minecraft.world.World;
 
@@ -18,15 +17,19 @@ import com.github.qianwj.mindrobot.link.ChannelData;
 import com.github.qianwj.mindrobot.link.ChannelMode;
 
 /**
- * Frequency chip: the physical carrier of a channel number (R13, R21, R22).
+ * Frequency chip: the physical carrier of a channel (R13, R21, R22).
  * <p>
- * The chip owns the NBT triple {@code channel} / {@code mode} / {@code owner} (D5). It is configured through
- * the client screen {@code ChipConfigGui} (the screen only sends a request, the server writes the NBT) or
- * through {@code /mindrobot chip &lt;channel&gt; [private|public]} for headless testing.
+ * The chip owns the channel snapshot (D5): {@code mode} plus either a public number or a private name and
+ * password (plain text, see {@link ChannelData}). It is configured through the client screen
+ * {@code ChipConfigGui} (the screen only sends a request, the server writes the NBT) or through
+ * {@code /mindrobot chip &lt;number&gt;} and {@code /mindrobot chip private &lt;name&gt; &lt;password&gt;}
+ * for headless testing.
  * <p>
  * Installation: shift + right click while wearing a remote helmet copies the snapshot into the helmet and
  * consumes one chip. A helmet that already has a channel is overwritten on purpose; the old channel is only
- * reported in chat and no replacement chip is refunded (the chip was consumed by the installer).
+ * reported in chat and no replacement chip is refunded (the chip was consumed by the installer). The snapshot
+ * is copied as it is - there is no player identity field that could be refreshed to the installing player
+ * (R22).
  */
 public class ItemFrequencyChip extends Item {
 
@@ -90,6 +93,7 @@ public class ItemFrequencyChip extends Item {
         return true;
     }
 
+    /** Shows the public number or the private name; the private password is never rendered (D5). */
     @Override
     public void addInformation(ItemStack stack, EntityPlayer player, List<String> tooltip, boolean advanced) {
         ChannelData channel = getChannelData(stack);
@@ -97,9 +101,7 @@ public class ItemFrequencyChip extends Item {
             tooltip.add(
                 EnumChatFormatting.DARK_GRAY + StatCollector.translateToLocal("tooltip.mindrobot.chip.unconfigured"));
         } else {
-            tooltip.add(
-                EnumChatFormatting.DARK_GRAY
-                    + StatCollector.translateToLocalFormatted("tooltip.mindrobot.chip.channel", channel.getChannel()));
+            tooltip.add(EnumChatFormatting.DARK_GRAY + channelLabel(channel));
             tooltip.add(
                 EnumChatFormatting.DARK_GRAY + StatCollector.translateToLocal(
                     channel.isPrivate() ? "tooltip.mindrobot.mode.private" : "tooltip.mindrobot.mode.public"));
@@ -111,30 +113,42 @@ public class ItemFrequencyChip extends Item {
      * Applies a configuration request coming from the client screen or a command.
      * <p>
      * The item is looked up again on the server, so a forged packet cannot configure an item the player is
-     * not holding, and the owner is always the server side player UUID.
+     * not holding. A private name or password is validated here (blank or too long is R26 "not configured"),
+     * and the password never leaves this method in a chat line.
      *
-     * @param player  the player that requested the change
-     * @param channel 0..{@link ChannelData#MAX_CHANNEL}
-     * @param mode    private or public
+     * @param mode     which kind of channel the chip should carry
+     * @param channel  0..{@link ChannelData#MAX_CHANNEL}, used for {@link ChannelMode#PUBLIC}
+     * @param name     private channel name, used for {@link ChannelMode#PRIVATE}
+     * @param password private channel password in plain text, used for {@link ChannelMode#PRIVATE}
      * @return true when the chip was configured
      */
-    public static boolean applyConfiguration(EntityPlayer player, int channel, ChannelMode mode) {
+    public static boolean applyConfiguration(EntityPlayer player, ChannelMode mode, int channel, String name,
+        String password) {
         if (player == null || player.worldObj == null || player.worldObj.isRemote) {
             return false;
         }
-        if (!ChannelData.isValidChannel(channel)) {
-            player.addChatMessage(new ChatComponentTranslation("chat.mindrobot.chip.invalid"));
-            return false;
+        ChannelData data;
+        if (mode == ChannelMode.PUBLIC) {
+            if (!ChannelData.isValidChannel(channel)) {
+                player.addChatMessage(new ChatComponentTranslation("chat.mindrobot.chip.invalid"));
+                return false;
+            }
+            data = ChannelData.publicChannel(channel);
+        } else {
+            data = ChannelData.privateChannel(name, password);
+            if (data == null) {
+                player.addChatMessage(new ChatComponentTranslation("chat.mindrobot.chip.invalid_private"));
+                return false;
+            }
         }
         ItemStack held = player.getHeldItem();
         if (held == null || !(held.getItem() instanceof ItemFrequencyChip)) {
             player.addChatMessage(new ChatComponentTranslation("chat.mindrobot.chip.not_held"));
             return false;
         }
-        setChannelData(held, new ChannelData(channel, mode, player.getUniqueID()));
+        setChannelData(held, data);
         syncHeldItem(player);
-        player.addChatMessage(
-            new ChatComponentTranslation("chat.mindrobot.chip.configured", channel, modeTranslation(mode)));
+        player.addChatMessage(configuredMessage(data));
         return true;
     }
 
@@ -151,17 +165,15 @@ public class ItemFrequencyChip extends Item {
             return;
         }
         ChannelData previous = ItemRemoteHelmet.getChannelData(helmet);
-        // The owner follows the holder (R22): installing refreshes the owner to the player performing it, so a
-        // stolen chip cannot drive a private robot that belongs to somebody else.
-        ItemRemoteHelmet
-            .setChannelData(helmet, new ChannelData(chip.getChannel(), chip.getMode(), player.getUniqueID()));
+        // The snapshot is copied verbatim: a public number or a private name plus password, no player
+        // identity (R22).
+        ItemRemoteHelmet.setChannelData(helmet, chip);
         player.inventory.decrStackSize(player.inventory.currentItem, 1);
         syncHeldItem(player);
         if (previous != null) {
-            player
-                .addChatMessage(new ChatComponentTranslation("chat.mindrobot.chip.overwritten", previous.getChannel()));
+            player.addChatMessage(new ChatComponentTranslation("chat.mindrobot.chip.overwritten"));
         } else {
-            player.addChatMessage(new ChatComponentTranslation("chat.mindrobot.chip.installed", chip.getChannel()));
+            player.addChatMessage(new ChatComponentTranslation("chat.mindrobot.chip.installed"));
         }
     }
 
@@ -200,8 +212,18 @@ public class ItemFrequencyChip extends Item {
         }
     }
 
-    private static IChatComponent modeTranslation(ChannelMode mode) {
-        return new ChatComponentTranslation(
-            mode == ChannelMode.PUBLIC ? "tooltip.mindrobot.mode.public" : "tooltip.mindrobot.mode.private");
+    /** Localized label of a snapshot: the number for a public channel, the name for a private one. */
+    private static String channelLabel(ChannelData channel) {
+        if (channel.isPrivate()) {
+            return StatCollector.translateToLocalFormatted("tooltip.mindrobot.chip.name", channel.getName());
+        }
+        return StatCollector.translateToLocalFormatted("tooltip.mindrobot.chip.channel", channel.getChannel());
+    }
+
+    private static ChatComponentTranslation configuredMessage(ChannelData data) {
+        if (data.isPrivate()) {
+            return new ChatComponentTranslation("chat.mindrobot.chip.configured_private", data.getName());
+        }
+        return new ChatComponentTranslation("chat.mindrobot.chip.configured_public", data.getChannel());
     }
 }

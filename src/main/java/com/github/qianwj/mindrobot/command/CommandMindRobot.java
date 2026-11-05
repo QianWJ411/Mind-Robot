@@ -8,7 +8,6 @@ import net.minecraft.command.ICommandSender;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ChatComponentTranslation;
-import net.minecraft.util.IChatComponent;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.World;
 
@@ -20,11 +19,15 @@ import com.github.qianwj.mindrobot.link.ChannelMode;
 /**
  * {@code /mindrobot} debug and setup command (permission level 2).
  * <ul>
- * <li>{@code /mindrobot chip <channel> [private|public]} - configures the frequency chip in the main hand
- * without opening a GUI, which keeps headless testing and server side setup possible;</li>
- * <li>{@code /mindrobot spawn <channel> [private|public]} - spawns a robot carrying that channel two blocks
- * in front of the player. This replaces the P0 bridge that silently materialised a robot on first connect;
- * there is now an explicit command for it until the assembly table of P3 exists.</li>
+ * <li>{@code /mindrobot chip <number>} - makes the chip in the main hand a public channel without opening a
+ * GUI, which keeps headless testing and server side setup possible;</li>
+ * <li>{@code /mindrobot chip private <name> <password>} - makes it a private channel (plain text password,
+ * see {@link ChannelData});</li>
+ * <li>{@code /mindrobot spawn <number>} - spawns a public robot on that number two blocks in front of the
+ * player;</li>
+ * <li>{@code /mindrobot spawn private <name> <password>} - spawns a private robot carrying those credentials.
+ * This replaces the P0 bridge that silently materialised a robot on first connect; there is now an explicit
+ * command for it until the assembly table of P3 exists.</li>
  * </ul>
  */
 public class CommandMindRobot extends CommandBase {
@@ -35,7 +38,6 @@ public class CommandMindRobot extends CommandBase {
     private static final String SUBCOMMAND_CHIP = "chip";
     private static final String SUBCOMMAND_SPAWN = "spawn";
     private static final String MODE_PRIVATE = "private";
-    private static final String MODE_PUBLIC = "public";
 
     private static final int SPAWN_DISTANCE = 2;
     private static final int SPAWN_HEADROOM = 1;
@@ -70,31 +72,54 @@ public class CommandMindRobot extends CommandBase {
         }
     }
 
-    /** {@code /mindrobot chip <channel> [private|public]}: writes the channel into the main hand chip. */
+    /** {@code /mindrobot chip <number>} or {@code /mindrobot chip private <name> <password>}. */
     private void configureChip(ICommandSender sender, String[] args) {
         EntityPlayerMP player = requirePlayer(sender);
         if (args.length < 2) {
             throw new CommandException("commands.mindrobot.usage");
         }
-        int channel = parseIntBounded(sender, args[1], ChannelData.MIN_CHANNEL, ChannelData.MAX_CHANNEL);
-        ChannelMode mode = args.length >= 3 ? parseMode(args[2]) : ChannelMode.PRIVATE;
         ItemStack held = player.getHeldItem();
         if (held == null || !(held.getItem() instanceof ItemFrequencyChip)) {
             throw new CommandException("commands.mindrobot.chip.no_chip");
         }
-        // Same server side write path as the GUI packet, so the owner is always the executing player.
-        ItemFrequencyChip.applyConfiguration(player, channel, mode);
+        if (isPrivateForm(args)) {
+            requireArguments(sender, args, 4);
+            String name = args[2];
+            String password = args[3];
+            requireValidPrivate(name, password);
+            // Same server side write path as the GUI packet.
+            ItemFrequencyChip.applyConfiguration(player, ChannelMode.PRIVATE, -1, name, password);
+            return;
+        }
+        if (args.length != 2) {
+            throw new CommandException("commands.mindrobot.usage");
+        }
+        int channel = parseIntBounded(sender, args[1], ChannelData.MIN_CHANNEL, ChannelData.MAX_CHANNEL);
+        ItemFrequencyChip.applyConfiguration(player, ChannelMode.PUBLIC, channel, null, null);
     }
 
-    /** {@code /mindrobot spawn <channel> [private|public]}: debug spawner until the P3 assembly table. */
+    /** {@code /mindrobot spawn <number>} or {@code /mindrobot spawn private <name> <password>}. */
     private void spawnRobot(ICommandSender sender, String[] args) {
         EntityPlayerMP player = requirePlayer(sender);
         if (args.length < 2) {
             throw new CommandException("commands.mindrobot.usage");
         }
-        int channel = parseIntBounded(sender, args[1], ChannelData.MIN_CHANNEL, ChannelData.MAX_CHANNEL);
-        ChannelMode mode = args.length >= 3 ? parseMode(args[2]) : ChannelMode.PRIVATE;
-        ChannelData channelData = new ChannelData(channel, mode, player.getUniqueID());
+        ChannelData channelData;
+        if (isPrivateForm(args)) {
+            requireArguments(sender, args, 4);
+            String name = args[2];
+            String password = args[3];
+            channelData = ChannelData.privateChannel(name, password);
+            if (channelData == null) {
+                throw new CommandException("commands.mindrobot.chip.invalid_private");
+            }
+        } else {
+            if (args.length != 2) {
+                throw new CommandException("commands.mindrobot.usage");
+            }
+            int channel = parseIntBounded(sender, args[1], ChannelData.MIN_CHANNEL, ChannelData.MAX_CHANNEL);
+            channelData = ChannelData.publicChannel(channel);
+        }
 
         World world = player.worldObj;
         double yaw = Math.toRadians(player.rotationYaw);
@@ -111,8 +136,26 @@ public class CommandMindRobot extends CommandBase {
         if (!world.spawnEntityInWorld(robot)) {
             throw new CommandException("commands.mindrobot.spawn.failed");
         }
-        sender.addChatMessage(
-            new ChatComponentTranslation("commands.mindrobot.spawn.success", channel, modeTranslation(mode)));
+        sender.addChatMessage(spawnMessage(channelData));
+    }
+
+    /** {@code private} is the only keyword form; everything else is the numeric public form. */
+    private static boolean isPrivateForm(String[] args) {
+        return args.length >= 2 && MODE_PRIVATE.equalsIgnoreCase(args[1]);
+    }
+
+    private static void requireArguments(ICommandSender sender, String[] args, int required) {
+        if (args.length < required) {
+            throw new CommandException("commands.mindrobot.usage");
+        }
+    }
+
+    /** Rejects a blank or over-long private name / password before anything is written (R26 / D5). */
+    private static void requireValidPrivate(String name, String password) {
+        String trimmedName = name == null ? "" : name.trim();
+        if (!ChannelData.isValidName(trimmedName) || !ChannelData.isValidPassword(password)) {
+            throw new CommandException("commands.mindrobot.chip.invalid_private");
+        }
     }
 
     private static EntityPlayerMP requirePlayer(ICommandSender sender) {
@@ -122,16 +165,6 @@ public class CommandMindRobot extends CommandBase {
         throw new CommandException("commands.mindrobot.player_only");
     }
 
-    private static ChannelMode parseMode(String value) {
-        if (MODE_PUBLIC.equalsIgnoreCase(value)) {
-            return ChannelMode.PUBLIC;
-        }
-        if (MODE_PRIVATE.equalsIgnoreCase(value)) {
-            return ChannelMode.PRIVATE;
-        }
-        throw new CommandException("commands.mindrobot.mode.invalid", value);
-    }
-
     private static boolean hasRoom(World world, double x, double y, double z) {
         int blockX = MathHelper.floor_double(x);
         int blockY = MathHelper.floor_double(y);
@@ -139,9 +172,12 @@ public class CommandMindRobot extends CommandBase {
         return world.isAirBlock(blockX, blockY, blockZ) && world.isAirBlock(blockX, blockY + SPAWN_HEADROOM, blockZ);
     }
 
-    private static IChatComponent modeTranslation(ChannelMode mode) {
-        return new ChatComponentTranslation(
-            mode == ChannelMode.PUBLIC ? "tooltip.mindrobot.mode.public" : "tooltip.mindrobot.mode.private");
+    /** Plain chat line: the number for a public channel, the name for a private one. */
+    private static ChatComponentTranslation spawnMessage(ChannelData channelData) {
+        if (channelData.isPrivate()) {
+            return new ChatComponentTranslation("commands.mindrobot.spawn.success_private", channelData.getName());
+        }
+        return new ChatComponentTranslation("commands.mindrobot.spawn.success_public", channelData.getChannel());
     }
 
     @Override
@@ -149,8 +185,8 @@ public class CommandMindRobot extends CommandBase {
         if (args.length == 1) {
             return getListOfStringsMatchingLastWord(args, SUBCOMMAND_CHIP, SUBCOMMAND_SPAWN);
         }
-        if (args.length == 3) {
-            return getListOfStringsMatchingLastWord(args, MODE_PRIVATE, MODE_PUBLIC);
+        if (args.length == 2) {
+            return getListOfStringsMatchingLastWord(args, MODE_PRIVATE);
         }
         return null;
     }

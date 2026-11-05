@@ -15,9 +15,10 @@ import com.github.qianwj.mindrobot.link.ChannelData;
 import com.github.qianwj.mindrobot.link.LastKnownPosition;
 
 /**
- * Remote control helmet. A head slot armor piece that stores a snapshot of the frequency channel it is
- * paired with (D5: {@code channel} / {@code mode} / {@code owner}), copied from a frequency chip via
- * shift + right click. The UUID pairing of P0 is gone; a helmet no longer names a specific robot.
+ * Remote control helmet. A head slot armor piece that stores a snapshot of the channel it is paired with
+ * (D5: {@code mode} plus either a public number or a private name and password), copied from a frequency chip
+ * via shift + right click. The UUID pairing of P0 is gone; a helmet no longer names a specific robot.
+ * The private password is stored in plain text inside the snapshot but is never shown in the tooltip.
  */
 public class ItemRemoteHelmet extends ItemArmor {
 
@@ -47,9 +48,8 @@ public class ItemRemoteHelmet extends ItemArmor {
             tooltip.add(EnumChatFormatting.DARK_GRAY + StatCollector.translateToLocal("tooltip.mindrobot.helmet.hint"));
             return;
         }
-        tooltip.add(
-            EnumChatFormatting.DARK_GRAY
-                + StatCollector.translateToLocalFormatted("tooltip.mindrobot.helmet.channel", channel.getChannel()));
+        // Only the public number or the private name is displayed; the password stays inside the NBT.
+        tooltip.add(EnumChatFormatting.DARK_GRAY + helmetLabel(channel));
         tooltip.add(
             EnumChatFormatting.DARK_GRAY + StatCollector.translateToLocal(
                 channel.isPrivate() ? "tooltip.mindrobot.mode.private" : "tooltip.mindrobot.mode.public"));
@@ -128,8 +128,17 @@ public class ItemRemoteHelmet extends ItemArmor {
         channel.writeToNBT(tag);
     }
 
-    /** True when this helmet carries a usable channel snapshot. */
+    /** True when this helmet carries a complete channel snapshot (public number, or private name + password). */
     public static boolean hasChannel(ItemStack stack) {
-        return getChannelData(stack) != null;
+        ChannelData channel = getChannelData(stack);
+        return channel != null && channel.isConfigured();
+    }
+
+    /** Localized label of a snapshot: the number for a public channel, the name for a private one. */
+    private static String helmetLabel(ChannelData channel) {
+        if (channel.isPrivate()) {
+            return StatCollector.translateToLocalFormatted("tooltip.mindrobot.helmet.name", channel.getName());
+        }
+        return StatCollector.translateToLocalFormatted("tooltip.mindrobot.helmet.channel", channel.getChannel());
     }
 }
