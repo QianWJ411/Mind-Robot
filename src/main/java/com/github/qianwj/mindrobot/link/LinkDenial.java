@@ -31,7 +31,11 @@ public enum LinkDenial {
     /** The private robot is already driven by somebody else (R13/R25). */
     ROBOT_OCCUPIED_PRIVATE("chat.mindrobot.denial.occupied_private"),
     /** The player is already driving something. */
-    ALREADY_DRIVING("chat.mindrobot.denial.already_driving");
+    ALREADY_DRIVING("chat.mindrobot.denial.already_driving"),
+    /** R14b / D17: the body is missing a part, so it is not a finished robot yet. */
+    ROBOT_INCOMPLETE("chat.mindrobot.denial.robot_incomplete"),
+    /** R40: the battery box is empty, so the body cannot spend the energy a drive costs. */
+    ROBOT_UNPOWERED("chat.mindrobot.denial.robot_unpowered");
 
     private final String translationKey;
 

@@ -18,6 +18,10 @@ public enum DisconnectReason {
     PLAYER_LOGOUT,
     /** The player changed dimension. */
     DIMENSION_CHANGE,
+    /** R42: the battery cells ran out of EU, so the drive ends; the body itself stays intact and stays put. */
+    NO_POWER,
+    /** R14b: the body lost a part while it was driven, so it cannot be controlled any more. */
+    ROBOT_INCOMPLETE,
     /** The integrated or dedicated server is shutting down. */
     SERVER_STOP
 }

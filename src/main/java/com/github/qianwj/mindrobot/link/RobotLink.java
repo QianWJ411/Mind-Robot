@@ -30,6 +30,11 @@ public final class RobotLink {
     private double robotY;
     private double robotZ;
 
+    /** True while this link is the one that granted the driver's night vision (R33). */
+    private boolean nightVisionGranted;
+    /** Duration of the last night vision this link applied, used to tell its own effect from a drunk potion. */
+    private int nightVisionDuration;
+
     RobotLink(EntityPlayer player, UUID robotId, double robotX, double robotY, double robotZ) {
         this.playerId = player.getUniqueID();
         this.robotId = robotId;
@@ -47,6 +52,28 @@ public final class RobotLink {
         this.robotX = x;
         this.robotY = y;
         this.robotZ = z;
+    }
+
+    /** Remembers that this link owns the night vision of the driver, and how long it was granted for. */
+    void markNightVisionGranted(int duration) {
+        this.nightVisionGranted = true;
+        this.nightVisionDuration = duration;
+    }
+
+    /** True while the night vision of the driver came from this link and has to be taken back on exit. */
+    boolean isNightVisionGranted() {
+        return nightVisionGranted;
+    }
+
+    /** Duration of the last granted night vision; 0 once the effect was taken back. */
+    int getNightVisionDuration() {
+        return nightVisionDuration;
+    }
+
+    /** Forgets the granted effect; the caller removes it from the player before calling this. */
+    void clearNightVision() {
+        this.nightVisionGranted = false;
+        this.nightVisionDuration = 0;
     }
 
     public UUID getPlayerId() {

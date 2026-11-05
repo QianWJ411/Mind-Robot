@@ -16,6 +16,7 @@ import net.minecraft.world.World;
 import com.github.qianwj.mindrobot.api.IRobotCore;
 import com.github.qianwj.mindrobot.container.RobotGuiHandler;
 import com.github.qianwj.mindrobot.damage.RobotDamage;
+import com.github.qianwj.mindrobot.energy.RobotEnergy;
 import com.github.qianwj.mindrobot.inventory.RobotInventory;
 import com.github.qianwj.mindrobot.item.CameraType;
 import com.github.qianwj.mindrobot.item.ItemFrequencyChip;
@@ -74,7 +75,15 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
      * "backpack part installed" bit - which decides whether the 54 cells exist - has to travel separately.
      */
     private static final int DATA_PART_FLAGS = 20;
-    private static final byte FLAG_BACKPACK = 1;
+    private static final int FLAG_BACKPACK = 1;
+    /** Bits 1..3 of the same byte carry how many battery cells the installed box unlocks (0..4). */
+    private static final int FLAG_BATTERY_SHIFT = 1;
+    private static final int FLAG_BATTERY_MASK = 0x0E;
+    private static final int FLAG_BATTERY_BITS = 0x7;
+    /** Bits 4..6 carry the rated tier of the installed box (0 = no box), so the client can filter cells. */
+    private static final int FLAG_BOX_TIER_SHIFT = 4;
+    private static final int FLAG_BOX_TIER_MASK = 0x70;
+    private static final int FLAG_BOX_TIER_BITS = 0x7;
 
     /**
      * Channel snapshot of this robot (D5): the public number, or the private name plus password, and the
@@ -130,6 +139,8 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
             return;
         }
         syncPartFlags();
+        drainEnergy();
+        spillUncoveredBatteries();
         reportPosition();
         if (ticksExisted % PICKUP_INTERVAL == 0) {
             collectNearbyItems();
@@ -138,10 +149,13 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
 
     /**
      * Keeps the client side container layout in step with the installed parts: a body gains or loses the 54
-     * backpack cells the moment the backpack part is put in or taken out.
+     * backpack cells the moment the backpack part is put in or taken out, and the battery cells appear or
+     * disappear with the box (R14b / R41).
      */
     private void syncPartFlags() {
-        byte flags = (byte) (robotInventory.isBackpackInstalled() ? FLAG_BACKPACK : 0);
+        byte flags = (byte) ((robotInventory.isBackpackInstalled() ? FLAG_BACKPACK : 0)
+            | ((robotInventory.getBatteryCellCount() & FLAG_BATTERY_BITS) << FLAG_BATTERY_SHIFT)
+            | ((robotInventory.getBatteryBoxTier() & FLAG_BOX_TIER_BITS) << FLAG_BOX_TIER_SHIFT));
         if (dataWatcher.getWatchableObjectByte(DATA_PART_FLAGS) != flags) {
             dataWatcher.updateObject(DATA_PART_FLAGS, Byte.valueOf(flags));
         }
@@ -157,6 +171,50 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
             return (dataWatcher.getWatchableObjectByte(DATA_PART_FLAGS) & FLAG_BACKPACK) != 0;
         }
         return robotInventory.isBackpackInstalled();
+    }
+
+    /**
+     * How many battery cells the installed box unlocks right now (R41): 0 without a box, 1..4 with a 1x..4x
+     * box. The container adds exactly this many cell slots, so the body shows what the box can actually hold.
+     */
+    public int getBatteryCellCount() {
+        if (worldObj != null && worldObj.isRemote) {
+            return (dataWatcher.getWatchableObjectByte(DATA_PART_FLAGS) & FLAG_BATTERY_MASK) >> FLAG_BATTERY_SHIFT;
+        }
+        return robotInventory.getBatteryCellCount();
+    }
+
+    /**
+     * Rated tier of the installed box, 0 when there is none. The server reads the box, the client reads the
+     * mirrored bits: the container has to filter cells by this tier, and the client cannot read the stacks of an
+     * entity inventory to find it out.
+     */
+    public int getBatteryBoxTier() {
+        if (worldObj != null && worldObj.isRemote) {
+            return (dataWatcher.getWatchableObjectByte(DATA_PART_FLAGS) & FLAG_BOX_TIER_MASK) >> FLAG_BOX_TIER_SHIFT;
+        }
+        return robotInventory.getBatteryBoxTier();
+    }
+
+    /**
+     * R40: a controlled body pays a fixed idle price every tick, taken out of the battery cells. The amount does
+     * not depend on the box size or on the tier of the cells - a bigger or better box only means the drive lasts
+     * longer.
+     */
+    private void drainEnergy() {
+        if (!RobotLinkManager.isRobotDriven(this)) {
+            return;
+        }
+        RobotEnergy.tickIdle(this);
+    }
+
+    /**
+     * R41 safety net: a battery the installed box no longer covers is handed back - to the player when a screen
+     * is open and the container already did it, otherwise dropped next to the body. This runs on the server tick
+     * so no path (a command, a hand edited save, a box that shrank) can leave a cell in a slot nobody can see.
+     */
+    private void spillUncoveredBatteries() {
+        robotInventory.returnInactiveBatteryCells(null);
     }
 
     /**

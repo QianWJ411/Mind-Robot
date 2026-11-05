@@ -6,6 +6,9 @@ import com.github.qianwj.mindrobot.MindRobot;
 import com.github.qianwj.mindrobot.entity.EntityRobot;
 import com.github.qianwj.mindrobot.item.ItemFrequencyChip;
 import com.github.qianwj.mindrobot.item.ItemRemoteHelmet;
+import com.github.qianwj.mindrobot.item.ItemRobotBackpack;
+import com.github.qianwj.mindrobot.item.ItemRobotBatteryBox;
+import com.github.qianwj.mindrobot.item.ItemRobotCamera;
 import com.github.qianwj.mindrobot.network.ModNetwork;
 
 import cpw.mods.fml.common.Loader;
@@ -31,6 +34,12 @@ public final class ModContent {
     public static Item remoteHelmet;
     /** The frequency chip item, registered during preInit (R13, R21). */
     public static Item frequencyChip;
+    /** The robot camera item (R33): normal and thermal share one item, distinguished by metadata. */
+    public static Item robotCamera;
+    /** The backpack part (R14b): unlocks the 54 backpack cells of a body. */
+    public static Item robotBackpack;
+    /** The battery box (R39 / R41): the capacity key of the battery cells of a body. */
+    public static Item robotBatteryBox;
 
     private ModContent() {}
 
@@ -40,6 +49,15 @@ public final class ModContent {
 
         frequencyChip = new ItemFrequencyChip();
         GameRegistry.registerItem(frequencyChip, FREQUENCY_CHIP_NAME);
+
+        robotCamera = new ItemRobotCamera();
+        GameRegistry.registerItem(robotCamera, ItemRobotCamera.ITEM_NAME);
+
+        robotBackpack = new ItemRobotBackpack();
+        GameRegistry.registerItem(robotBackpack, ItemRobotBackpack.ITEM_NAME);
+
+        robotBatteryBox = new ItemRobotBatteryBox();
+        GameRegistry.registerItem(robotBatteryBox, ItemRobotBatteryBox.ITEM_NAME);
 
         EntityRegistry.registerModEntity(
             EntityRobot.class,

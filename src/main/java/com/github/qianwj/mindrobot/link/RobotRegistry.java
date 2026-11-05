@@ -185,7 +185,9 @@ public final class RobotRegistry {
      * Writes (or refreshes) the row of this robot. Called by {@link EntityRobot} on its own tick, so the machine
      * is the only writer of its position (R27).
      * <p>
-     * A robot without a chip answers on no channel (R26), so its row is dropped instead of kept around.
+     * A robot without a chip answers on no channel (R26), so its row is dropped instead of kept around. An
+     * unfinished body is dropped for the same reason (R14b / D17): a wake-up row that could only ever be denied
+     * is a lie in the save file, so the registry does not keep one.
      */
     public void report(EntityRobot robot) {
         if (robot == null || robot.isDead || robot.worldObj == null) {
@@ -194,7 +196,7 @@ public final class RobotRegistry {
         load();
         UUID robotId = robot.getUniqueID();
         ChannelData channel = robot.getChannelData();
-        if (channel == null || !channel.isConfigured()) {
+        if (channel == null || !channel.isConfigured() || !robot.isComplete()) {
             remove(robotId);
             return;
         }

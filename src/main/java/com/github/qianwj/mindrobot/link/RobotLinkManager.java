@@ -9,6 +9,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
+import net.minecraft.potion.Potion;
+import net.minecraft.potion.PotionEffect;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.ChatComponentTranslation;
 import net.minecraft.util.IChatComponent;
@@ -16,6 +18,7 @@ import net.minecraft.util.MathHelper;
 import net.minecraft.world.World;
 
 import com.github.qianwj.mindrobot.MindRobot;
+import com.github.qianwj.mindrobot.energy.RobotEnergy;
 import com.github.qianwj.mindrobot.entity.EntityRobot;
 import com.github.qianwj.mindrobot.item.ItemRemoteHelmet;
 import com.github.qianwj.mindrobot.network.MenuOption;
@@ -53,6 +56,12 @@ public final class RobotLinkManager {
     private static final double ANCHOR_EPSILON_SQ = 1.0E-4D;
     private static final float ANCHOR_ROTATION_EPSILON = 0.1F;
     private static final int WAKE_TIMEOUT_TICKS = 60;
+
+    /** Night vision granted by a thermal camera (R33): 20 seconds, refreshed while it runs low. */
+    private static final int NIGHT_VISION_DURATION = 400;
+    /** Re-apply threshold: below this the effect is refreshed instead of letting it blink out. */
+    private static final int NIGHT_VISION_REFRESH = 200;
+    private static final int NIGHT_VISION_AMPLIFIER = 0;
 
     /** A private connection that is being retried while the registered chunk loads back in (R27 / R28). */
     private static final class PendingEnter {
@@ -101,6 +110,8 @@ public final class RobotLinkManager {
         RobotLink existing = LINKS_BY_PLAYER.get(player.getUniqueID());
         if (existing != null) {
             rememberLastPosition(player, existing);
+            // R33: the night vision belongs to the drive and must not outlive it.
+            revokeNightVision(player, existing);
         }
         RobotChunkLoader.release(player.getUniqueID());
         RobotLink link = LINKS_BY_PLAYER.remove(player.getUniqueID());
@@ -115,7 +126,51 @@ public final class RobotLinkManager {
             reason,
             link.getRobotId());
 
+        // R42: running dry is the one disconnection the player cannot see coming, so it gets its own line.
+        if (reason == DisconnectReason.NO_POWER) {
+            player.addChatMessage(new ChatComponentTranslation("chat.mindrobot.link.no_power"));
+        }
         ModNetwork.syncLinkState(player);
+    }
+
+    /**
+     * R33: a thermal camera keeps night vision on the driver, a normal camera - or no camera at all - takes it
+     * back. The effect is re-applied with a bounded duration instead of an eternal one, so a crash, a force
+     * logout or any path that skips {@link #disconnect} can leave at most twenty seconds behind.
+     * <p>
+     * The check runs on every server tick of the driver, which is what makes the camera a hot swappable part:
+     * the moment the stack in the camera slot changes, the next tick either grants or revokes the effect.
+     */
+    private static void updateNightVision(EntityPlayerMP player, RobotLink link, EntityRobot robot) {
+        if (!robot.hasThermalCamera()) {
+            revokeNightVision(player, link);
+            return;
+        }
+        PotionEffect active = player.getActivePotionEffect(Potion.nightVision);
+        if (active == null || active.getDuration() < NIGHT_VISION_REFRESH) {
+            player.addPotionEffect(
+                new PotionEffect(Potion.nightVision.id, NIGHT_VISION_DURATION, NIGHT_VISION_AMPLIFIER));
+        }
+        link.markNightVisionGranted(NIGHT_VISION_DURATION);
+    }
+
+    /**
+     * Takes the night vision of a drive back. Only an effect no longer than the one this link handed out is
+     * removed: a potion the player drank themselves lasts longer and is left alone.
+     */
+    private static void revokeNightVision(EntityPlayer player, RobotLink link) {
+        if (link == null || !link.isNightVisionGranted()) {
+            return;
+        }
+        int granted = link.getNightVisionDuration();
+        link.clearNightVision();
+        if (player == null) {
+            return;
+        }
+        PotionEffect active = player.getActivePotionEffect(Potion.nightVision);
+        if (active != null && active.getDuration() <= granted) {
+            player.removePotionEffect(Potion.nightVision.id);
+        }
     }
 
     /**
@@ -289,6 +344,16 @@ public final class RobotLinkManager {
 
     /** Opens the link once every D5 rule passed; used both by a direct request and by the wake retry. */
     private static void openLink(EntityPlayerMP player, EntityRobot robot, ChannelData helmetChannel) {
+        // R14b / D17: an unfinished body is not a robot yet - it cannot be driven, even if its channel matches.
+        if (!robot.isComplete()) {
+            LinkDenial.ROBOT_INCOMPLETE.send(player);
+            return;
+        }
+        // R40 / R42: a finished body with no charge cannot even start a drive.
+        if (!RobotEnergy.canPay(robot, RobotEnergy.getIdleCost())) {
+            LinkDenial.ROBOT_UNPOWERED.send(player);
+            return;
+        }
         // D5 step 2: both sides must still answer on the same channel (public number, or private credentials).
         ChannelData robotChannel = robot.getChannelData();
         if (robotChannel == null || !robotChannel.isConfigured() || !helmetChannel.matches(robotChannel)) {
@@ -402,6 +467,18 @@ public final class RobotLinkManager {
             disconnect(player, DisconnectReason.ROBOT_DESTROYED);
             return;
         }
+        // Defensive: the container is sealed while a robot is driven, so a part cannot leave mid drive, but a
+        // body that lost a part through any other path must not stay under control (R14b).
+        if (!robot.isComplete()) {
+            disconnect(player, DisconnectReason.ROBOT_INCOMPLETE);
+            return;
+        }
+        // R42: the drive ends the moment the next tick cannot be paid for; the body stays intact and stays put.
+        if (!RobotEnergy.canPay(robot, RobotEnergy.getIdleCost())) {
+            disconnect(player, DisconnectReason.NO_POWER);
+            return;
+        }
+        updateNightVision(player, link, robot);
         link.updateRobotPosition(robot.posX, robot.posY, robot.posZ);
 
         // The ticket follows the robot: crossing a chunk border forces the new chunk and releases the old one.
@@ -529,7 +606,7 @@ public final class RobotLinkManager {
                 continue;
             }
             EntityRobot robot = (EntityRobot) candidate;
-            if (robot.isDead || !channel.matches(robot.getChannelData())) {
+            if (robot.isDead || !robot.isComplete() || !channel.matches(robot.getChannelData())) {
                 continue;
             }
             double distance = player == null ? 0.0D : robot.getDistanceSqToEntity(player);

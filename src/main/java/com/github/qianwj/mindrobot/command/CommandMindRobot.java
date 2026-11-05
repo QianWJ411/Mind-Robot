@@ -145,6 +145,9 @@ public class CommandMindRobot extends CommandBase {
             throw new CommandException("commands.mindrobot.spawn.failed");
         }
         sender.addChatMessage(spawnMessage(channelData));
+        // R14 / R14b: what the command produces is only the chassis, the parts are installed through the
+        // container of the body itself, so the caller has to be told that the robot is not drivable yet.
+        sender.addChatMessage(new ChatComponentTranslation("commands.mindrobot.spawn.incomplete_hint"));
     }
 
     /** {@code private} is the only keyword form; everything else is the numeric public form. */

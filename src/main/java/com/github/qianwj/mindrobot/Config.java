@@ -13,6 +13,8 @@ public class Config {
 
     /** Category holding the driving overlay knobs (D12). */
     private static final String CATEGORY_NOISE = "helmet.noise";
+    /** Category holding the fixed energy draw of a driven robot (R40). */
+    private static final String CATEGORY_ENERGY = "robot.energy";
 
     /** Master switch of the driving noise overlay. */
     public static boolean enableNoise = true;
@@ -22,6 +24,15 @@ public class Config {
     public static float noiseMk3 = 0.04F;
     /** Multiplier of the per tier glitch band frequency (0 disables the bands, the grain stays untouched). */
     public static float glitchChance = 1.0F;
+
+    /**
+     * Fixed energy draw of a driven robot (R40). The numbers are the same whatever the voltage of the battery
+     * box or the tier of the cells inside it: a bigger or better box only means the robot runs longer, never
+     * faster and never stronger. 0 turns that particular draw off.
+     */
+    public static int euPerTickIdle = 8;
+    public static int euPerBlockMined = 200;
+    public static int euPerAttack = 100;
 
     public static void synchronizeConfiguration(File configFile) {
         Configuration configuration = new Configuration(configFile);
@@ -56,6 +67,29 @@ public class Config {
             0.0F,
             5.0F,
             "Multiplier of the glitch band frequency, 0 disables the bands.");
+
+        // R40: the draw is fixed, only the capacity of the installed box changes how long it lasts.
+        euPerTickIdle = configuration.getInt(
+            "euPerTickIdle",
+            CATEGORY_ENERGY,
+            euPerTickIdle,
+            0,
+            100000,
+            "EU a driven robot draws every tick while it is controlled (R40).");
+        euPerBlockMined = configuration.getInt(
+            "euPerBlockMined",
+            CATEGORY_ENERGY,
+            euPerBlockMined,
+            0,
+            1000000,
+            "Extra EU for every block the robot breaks (R40).");
+        euPerAttack = configuration.getInt(
+            "euPerAttack",
+            CATEGORY_ENERGY,
+            euPerAttack,
+            0,
+            1000000,
+            "Extra EU for every attack the robot lands (R40).");
 
         if (configuration.hasChanged()) {
             configuration.save();
