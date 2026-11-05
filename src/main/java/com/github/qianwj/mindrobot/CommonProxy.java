@@ -5,6 +5,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraftforge.common.MinecraftForge;
 
 import com.github.qianwj.mindrobot.command.CommandMindRobot;
+import com.github.qianwj.mindrobot.container.BrainHelmetGuiHandler;
 import com.github.qianwj.mindrobot.event.CommonEventHandler;
 import com.github.qianwj.mindrobot.event.RobotTargetingHandler;
 import com.github.qianwj.mindrobot.link.RobotChunkLoader;
@@ -15,6 +16,7 @@ import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
+import cpw.mods.fml.common.network.NetworkRegistry;
 
 public class CommonProxy {
 
@@ -27,6 +29,9 @@ public class CommonProxy {
         MindRobot.LOG.info("I am Mind-Robot at version " + Tags.VERSION);
 
         ModContent.preInit();
+        // The helmet chip screen (D13) is a plain FML gui handler: registered from the common proxy because a
+        // dedicated server needs the server half as well.
+        NetworkRegistry.INSTANCE.registerGuiHandler(ModContent.modInstance(), new BrainHelmetGuiHandler());
         // Must run while FML still knows our mod container: ForgeChunkManager refuses to hand out tickets to a
         // mod that never registered a forced chunk callback (D10).
         RobotChunkLoader.init();

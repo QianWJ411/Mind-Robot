@@ -5,7 +5,7 @@ item.remote_helmet.mk3.name=Brain-Computer Helmet MKIII
 item.frequency_chip.name=Frequency Chip
 
 tooltip.mindrobot.helmet.unpaired=No configured frequency chip installed
-tooltip.mindrobot.helmet.hint=Sneak + right click with a chip to install it
+tooltip.mindrobot.helmet.hint=Hold the helmet and sneak + right click to insert a frequency chip
 tooltip.mindrobot.helmet.channel=Public channel: %s
 tooltip.mindrobot.helmet.name=Private channel: %s
 tooltip.mindrobot.helmet.lastpos=Last reported position: %s, %s, %s (dimension %s)
@@ -14,7 +14,7 @@ tooltip.mindrobot.mode.public=Public channel (anyone on the same number)
 tooltip.mindrobot.chip.unconfigured=No channel configured
 tooltip.mindrobot.chip.channel=Public channel: %s
 tooltip.mindrobot.chip.name=Private channel: %s
-tooltip.mindrobot.chip.hint=Right click to configure, sneak + right click to install
+tooltip.mindrobot.chip.hint=Right click to configure; hold the helmet and sneak + right click to insert the chip
 
 key.categories.mindrobot=Mind-Robot
 key.mindrobot.radial_menu=Open Radial Menu
@@ -35,10 +35,10 @@ gui.mindrobot.chip.cancel=Cancel
 gui.mindrobot.chip.invalid=The channel must be an integer between 0 and 9999
 gui.mindrobot.chip.invalid_private=The name must be 1 - 32 characters and the password 1 - 64 characters
 
-chat.mindrobot.chip.unconfigured=This chip has no channel yet
-chat.mindrobot.chip.no_helmet=Put on a remote helmet first
-chat.mindrobot.chip.installed=Installed the chip on the helmet
-chat.mindrobot.chip.overwritten=The previous helmet channel was replaced
+gui.mindrobot.helmet.title=Brain-Computer Helmet
+container.mindrobot.helmet=Brain-Computer Helmet
+
+chat.mindrobot.helmet.driving=Leave the robot before opening the helmet chip slot
 chat.mindrobot.chip.configured_public=Chip set to public channel %s
 chat.mindrobot.chip.configured_private=Chip set to private channel '%s'
 chat.mindrobot.chip.invalid=The channel must be an integer between 0 and 9999

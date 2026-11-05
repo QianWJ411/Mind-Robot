@@ -53,6 +53,18 @@ public final class ModContent {
         ModNetwork.init();
     }
 
+    /**
+     * The mod instance FML associates with this mod. The GUI handler has to be registered against, and the
+     * screens opened with, the very same object - FML maps an {@code Object} back to its {@code ModContainer}
+     * by identity and silently ignores a handler registered under a different instance.
+     */
+    public static Object modInstance() {
+        ModContainer container = Loader.instance()
+            .getIndexedModList()
+            .get(MindRobot.MODID);
+        return container == null ? null : container.getMod();
+    }
+
     /** The mod instance is needed by {@code EntityRegistry.registerModEntity}; FML knows it while preInit runs. */
     private static Object activeModInstance() {
         ModContainer container = Loader.instance()

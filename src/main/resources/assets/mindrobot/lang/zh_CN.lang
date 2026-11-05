@@ -5,7 +5,7 @@ item.remote_helmet.mk3.name=脑机头盔 MKIII
 item.frequency_chip.name=频道芯片
 
 tooltip.mindrobot.helmet.unpaired=尚未安装可用的频道芯片
-tooltip.mindrobot.helmet.hint=手持芯片对准头盔潜行右键可安装
+tooltip.mindrobot.helmet.hint=把头盔拿在手上潜行右键，插入连接芯片
 tooltip.mindrobot.helmet.channel=公共频道：%s
 tooltip.mindrobot.helmet.name=私人频道：%s
 tooltip.mindrobot.helmet.lastpos=机器人上次报告的坐标：%s, %s, %s（维度 %s）
@@ -14,7 +14,7 @@ tooltip.mindrobot.mode.public=公共频道（同号皆可连接）
 tooltip.mindrobot.chip.unconfigured=尚未设置频道
 tooltip.mindrobot.chip.channel=公共频道：%s
 tooltip.mindrobot.chip.name=私人频道：%s
-tooltip.mindrobot.chip.hint=右键设置频道，潜行右键装入头盔
+tooltip.mindrobot.chip.hint=右键设置频道；把头盔拿在手上潜行右键，插入连接芯片
 
 key.categories.mindrobot=Mind-Robot
 key.mindrobot.radial_menu=打开转轮面板
@@ -35,10 +35,10 @@ gui.mindrobot.chip.cancel=取消
 gui.mindrobot.chip.invalid=频道号必须是 0 - 9999 的整数
 gui.mindrobot.chip.invalid_private=名称需为 1 - 32 个字符，密码需为 1 - 64 个字符
 
-chat.mindrobot.chip.unconfigured=这块芯片还没有设置频道
-chat.mindrobot.chip.no_helmet=需要先戴着遥控头盔
-chat.mindrobot.chip.installed=已把芯片装入头盔
-chat.mindrobot.chip.overwritten=头盔原来的频道已被覆盖
+gui.mindrobot.helmet.title=脑机头盔
+container.mindrobot.helmet=脑机头盔
+
+chat.mindrobot.helmet.driving=驾驶机器人时不能打开头盔的芯片槽
 chat.mindrobot.chip.configured_public=芯片已设置为公共频道 %s
 chat.mindrobot.chip.configured_private=芯片已设置为私人频道「%s」
 chat.mindrobot.chip.invalid=频道号必须是 0 - 9999 的整数

@@ -25,11 +25,10 @@ import com.github.qianwj.mindrobot.link.ChannelMode;
  * {@code /mindrobot chip &lt;number&gt;} and {@code /mindrobot chip private &lt;name&gt; &lt;password&gt;}
  * for headless testing.
  * <p>
- * Installation: shift + right click while wearing a remote helmet copies the snapshot into the helmet and
- * consumes one chip. A helmet that already has a channel is overwritten on purpose; the old channel is only
- * reported in chat and no replacement chip is refunded (the chip was consumed by the installer). The snapshot
- * is copied as it is - there is no player identity field that could be refreshed to the installing player
- * (R22).
+ * Installation (R32, D13): the chip is inserted into the helmet through the one slot container the helmet
+ * opens with sneak + right click, so this item only carries and configures its own snapshot. The snapshot is
+ * copied into the helmet verbatim - there is no player identity field that could be refreshed to the
+ * installing player (R22).
  */
 public class ItemFrequencyChip extends Item {
 
@@ -43,19 +42,10 @@ public class ItemFrequencyChip extends Item {
 
     /**
      * Plain right click in the air opens the configuration screen (client side only, the server never needs
-     * it). Shift + right click installs the chip into the worn helmet (server side only).
+     * it).
      */
     @Override
     public ItemStack onItemRightClick(ItemStack stack, World world, EntityPlayer player) {
-        if (player == null) {
-            return stack;
-        }
-        if (player.isSneaking()) {
-            if (!world.isRemote) {
-                installOnWornHelmet(stack, player);
-            }
-            return stack;
-        }
         if (world.isRemote) {
             MindRobot.proxy.openChipConfigGui(player, stack);
         }
@@ -64,32 +54,17 @@ public class ItemFrequencyChip extends Item {
 
     /**
      * Right click on a block. {@code onItemUseFirst} runs before the block itself, so a chest or a crafting
-     * table cannot swallow the click and the chip still opens its screen. The sneak gesture is left alone
-     * here: the install has to run on the server, so that click must travel as a normal block use.
+     * table cannot swallow the click and the chip still opens its screen.
      */
     @Override
     public boolean onItemUseFirst(ItemStack stack, EntityPlayer player, World world, int x, int y, int z, int side,
         float hitX, float hitY, float hitZ) {
-        if (player == null || player.isSneaking()) {
+        if (player == null) {
             return false;
         }
         if (world.isRemote) {
             MindRobot.proxy.openChipConfigGui(player, stack);
         }
-        return true;
-    }
-
-    /**
-     * Server side block variant of the install gesture. A sneak + right click in the air never reaches this
-     * method (it goes through {@link #onItemRightClick}), so both paths exist on purpose.
-     */
-    @Override
-    public boolean onItemUse(ItemStack stack, EntityPlayer player, World world, int x, int y, int z, int side,
-        float hitX, float hitY, float hitZ) {
-        if (player == null || !player.isSneaking() || world.isRemote) {
-            return false;
-        }
-        installOnWornHelmet(stack, player);
         return true;
     }
 
@@ -150,31 +125,6 @@ public class ItemFrequencyChip extends Item {
         syncHeldItem(player);
         player.addChatMessage(configuredMessage(data));
         return true;
-    }
-
-    /** Copies this chip into the helmet currently worn by the player and consumes the chip. */
-    private static void installOnWornHelmet(ItemStack chipStack, EntityPlayer player) {
-        ChannelData chip = getChannelData(chipStack);
-        if (chip == null) {
-            player.addChatMessage(new ChatComponentTranslation("chat.mindrobot.chip.unconfigured"));
-            return;
-        }
-        ItemStack helmet = player.getCurrentArmor(ItemRemoteHelmet.HEAD_ARMOR_SLOT);
-        if (helmet == null || !(helmet.getItem() instanceof ItemRemoteHelmet)) {
-            player.addChatMessage(new ChatComponentTranslation("chat.mindrobot.chip.no_helmet"));
-            return;
-        }
-        ChannelData previous = ItemRemoteHelmet.getChannelData(helmet);
-        // The snapshot is copied verbatim: a public number or a private name plus password, no player
-        // identity (R22).
-        ItemRemoteHelmet.setChannelData(helmet, chip);
-        player.inventory.decrStackSize(player.inventory.currentItem, 1);
-        syncHeldItem(player);
-        if (previous != null) {
-            player.addChatMessage(new ChatComponentTranslation("chat.mindrobot.chip.overwritten"));
-        } else {
-            player.addChatMessage(new ChatComponentTranslation("chat.mindrobot.chip.installed"));
-        }
     }
 
     /** Reads the channel snapshot stored on this chip. */

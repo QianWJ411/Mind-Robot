@@ -8,21 +8,27 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemArmor;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.util.ChatComponentTranslation;
 import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.IIcon;
 import net.minecraft.util.StatCollector;
+import net.minecraft.world.World;
 
 import com.github.qianwj.mindrobot.MindRobot;
+import com.github.qianwj.mindrobot.container.BrainHelmetGuiHandler;
 import com.github.qianwj.mindrobot.link.ChannelData;
 import com.github.qianwj.mindrobot.link.LastKnownPosition;
+import com.github.qianwj.mindrobot.link.RobotLinkManager;
 
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 
 /**
  * Brain computer helmet. A head slot armor piece that stores a snapshot of the channel it is paired with
- * (D5: {@code mode} plus either a public number or a private name and password), copied from a frequency chip
- * via shift + right click. The UUID pairing of P0 is gone; a helmet no longer names a specific robot.
+ * (D5: {@code mode} plus either a public number or a private name and password). The snapshot is written by
+ * the one slot container of R32 / D13: the chip is inserted into the helmet, and every slot change mirrors
+ * the chip channel into the helmet NBT. The UUID pairing of P0 is gone; a helmet no longer names a specific
+ * robot.
  * The private password is stored in plain text inside the snapshot but is never shown in the tooltip.
  * <p>
  * R29/R30: the generation (MKI, MKII, MKIII) is the item metadata, the channel stays in the NBT tag, so the two
@@ -45,6 +51,48 @@ public class ItemRemoteHelmet extends ItemArmor {
         // R30: the metadata is the generation, so the stack must not be damageable and must expose subtypes.
         setHasSubtypes(true);
         setMaxDamage(0);
+    }
+
+    /**
+     * Sneak + right click opens the one slot chip container (R32, D13); a normal right click keeps the vanilla
+     * armor behaviour and puts the helmet on the head.
+     */
+    @Override
+    public ItemStack onItemRightClick(ItemStack stack, World world, EntityPlayer player) {
+        if (player != null && player.isSneaking()) {
+            if (!world.isRemote) {
+                openChipContainer(player);
+            }
+            return stack;
+        }
+        return super.onItemRightClick(stack, world, player);
+    }
+
+    /**
+     * Block face variant of the same gesture, so aiming at the ground does not silently swallow the click. The
+     * client deliberately returns false: the click still has to travel to the server, which opens the screen
+     * and reports the click as handled. The block itself stays untouched because the player is sneaking.
+     */
+    @Override
+    public boolean onItemUseFirst(ItemStack stack, EntityPlayer player, World world, int x, int y, int z, int side,
+        float hitX, float hitY, float hitZ) {
+        if (player == null || !player.isSneaking() || world.isRemote) {
+            return false;
+        }
+        openChipContainer(player);
+        return true;
+    }
+
+    /**
+     * Opens the chip slot on the server; FML sends the screen to the client. A driving player is refused, the
+     * chip must not be swapped under a live link (R10).
+     */
+    private static void openChipContainer(EntityPlayer player) {
+        if (RobotLinkManager.isDriving(player)) {
+            player.addChatMessage(new ChatComponentTranslation("chat.mindrobot.helmet.driving"));
+            return;
+        }
+        BrainHelmetGuiHandler.open(player, BrainHelmetGuiHandler.MAIN_HAND);
     }
 
     @Override

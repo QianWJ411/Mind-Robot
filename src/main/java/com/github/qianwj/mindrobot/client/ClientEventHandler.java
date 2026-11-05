@@ -7,6 +7,7 @@ import net.minecraft.entity.EntityLivingBase;
 import net.minecraftforge.client.event.GuiOpenEvent;
 import net.minecraftforge.client.event.RenderHandEvent;
 
+import com.github.qianwj.mindrobot.client.gui.GuiBrainHelmet;
 import com.github.qianwj.mindrobot.client.gui.RadialMenuGui;
 import com.github.qianwj.mindrobot.client.key.KeyBindings;
 import com.github.qianwj.mindrobot.entity.EntityRobot;
@@ -19,7 +20,8 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * <ul>
  * <li>camera: {@code Minecraft.renderViewEntity} points at the driven robot while a link is open;</li>
  * <li>first person hand: {@link RenderHandEvent} is cancelled while driving;</li>
- * <li>own inventory: {@link GuiInventory} is refused while driving (R10).</li>
+ * <li>own inventory: {@link GuiInventory} is refused while driving (R10), and so is the helmet chip screen
+ * (D13), because both would let the driver move the items the link depends on.</li>
  * </ul>
  */
 public class ClientEventHandler {
@@ -35,7 +37,12 @@ public class ClientEventHandler {
 
     @SubscribeEvent
     public void onGuiOpen(GuiOpenEvent event) {
-        if (!ClientLinkState.isLinked() || !(event.gui instanceof GuiInventory)) {
+        if (!ClientLinkState.isLinked()) {
+            return;
+        }
+        // The own inventory (R10) and the helmet chip slot: both would let the driver rearrange the items the
+        // live link depends on.
+        if (!(event.gui instanceof GuiInventory) && !(event.gui instanceof GuiBrainHelmet)) {
             return;
         }
         event.setCanceled(true);
