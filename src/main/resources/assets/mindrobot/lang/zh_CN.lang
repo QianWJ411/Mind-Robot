@@ -1,4 +1,7 @@
-item.remote_helmet.name=遥控头盔
+item.remote_helmet.name=脑机头盔
+item.remote_helmet.mk1.name=脑机头盔 MKI
+item.remote_helmet.mk2.name=脑机头盔 MKII
+item.remote_helmet.mk3.name=脑机头盔 MKIII
 item.frequency_chip.name=频道芯片
 
 tooltip.mindrobot.helmet.unpaired=尚未安装可用的频道芯片

@@ -2,28 +2,39 @@ package com.github.qianwj.mindrobot.item;
 
 import java.util.List;
 
+import net.minecraft.client.renderer.texture.IIconRegister;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemArmor;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.util.EnumChatFormatting;
+import net.minecraft.util.IIcon;
 import net.minecraft.util.StatCollector;
 
 import com.github.qianwj.mindrobot.MindRobot;
 import com.github.qianwj.mindrobot.link.ChannelData;
 import com.github.qianwj.mindrobot.link.LastKnownPosition;
 
+import cpw.mods.fml.relauncher.Side;
+import cpw.mods.fml.relauncher.SideOnly;
+
 /**
- * Remote control helmet. A head slot armor piece that stores a snapshot of the channel it is paired with
+ * Brain computer helmet. A head slot armor piece that stores a snapshot of the channel it is paired with
  * (D5: {@code mode} plus either a public number or a private name and password), copied from a frequency chip
  * via shift + right click. The UUID pairing of P0 is gone; a helmet no longer names a specific robot.
  * The private password is stored in plain text inside the snapshot but is never shown in the tooltip.
+ * <p>
+ * R29/R30: the generation (MKI, MKII, MKIII) is the item metadata, the channel stays in the NBT tag, so the two
+ * never interfere. The generation only changes the appearance and the strength of the driving overlay.
  */
 public class ItemRemoteHelmet extends ItemArmor {
 
     /** Head slot index inside EntityPlayer#getCurrentArmor. */
     public static final int HEAD_ARMOR_SLOT = 3;
+
+    /** Item icons per generation, indexed by {@link HelmetTier#getMetadata()}; filled by {@link #registerIcons}. */
+    private IIcon[] tierIcons;
 
     public ItemRemoteHelmet() {
         // renderIndex 2 selects the vanilla "iron" armor layer as a fallback, armorType 0 is the head slot.
@@ -31,12 +42,50 @@ public class ItemRemoteHelmet extends ItemArmor {
         setUnlocalizedName("remote_helmet");
         setTextureName(MindRobot.MODID + ":remote_helmet");
         setMaxStackSize(1);
+        // R30: the metadata is the generation, so the stack must not be damageable and must expose subtypes.
+        setHasSubtypes(true);
+        setMaxDamage(0);
     }
 
     @Override
     public String getArmorTexture(ItemStack stack, Entity entity, int slot, String type) {
         // Slot 2 is the leggings slot, every other slot uses the first armor layer.
-        return MindRobot.MODID + ":textures/models/armor/remote_helmet_layer_" + (slot == 2 ? 2 : 1) + ".png";
+        return MindRobot.MODID + ":"
+            + HelmetTier.byItemStack(stack)
+                .getArmorTexturePath(slot == 2 ? 2 : 1);
+    }
+
+    @Override
+    @SideOnly(Side.CLIENT)
+    public void registerIcons(IIconRegister register) {
+        // The base texture stays registered as a fallback for any lookup that ignores the metadata.
+        super.registerIcons(register);
+        tierIcons = new IIcon[HelmetTier.values().length];
+        for (HelmetTier tier : HelmetTier.values()) {
+            tierIcons[tier.getMetadata()] = register.registerIcon(MindRobot.MODID + ":" + tier.getItemIconName());
+        }
+    }
+
+    @Override
+    @SideOnly(Side.CLIENT)
+    public IIcon getIconFromDamage(int damage) {
+        if (tierIcons == null) {
+            return super.getIconFromDamage(damage);
+        }
+        HelmetTier tier = HelmetTier.byMetadata(damage);
+        IIcon icon = tierIcons[tier.getMetadata()];
+        return icon == null ? super.getIconFromDamage(damage) : icon;
+    }
+
+    @Override
+    public String getItemStackDisplayName(ItemStack stack) {
+        HelmetTier tier = HelmetTier.byItemStack(stack);
+        String tierName = tier.getUnlocalizedName();
+        if (StatCollector.canTranslate(tierName)) {
+            return StatCollector.translateToLocal(tierName);
+        }
+        // Unknown language file: keep the base name and append the generation so the tiers stay distinguishable.
+        return StatCollector.translateToLocal(getUnlocalizedName() + ".name") + " " + tier.getDisplaySuffix();
     }
 
     @Override

@@ -8,6 +8,7 @@ import net.minecraftforge.common.MinecraftForge;
 import com.github.qianwj.mindrobot.client.ClientEventHandler;
 import com.github.qianwj.mindrobot.client.gui.ChipConfigGui;
 import com.github.qianwj.mindrobot.client.key.KeyBindings;
+import com.github.qianwj.mindrobot.client.render.NoiseOverlay;
 import com.github.qianwj.mindrobot.client.render.RenderRobot;
 import com.github.qianwj.mindrobot.entity.EntityRobot;
 import com.github.qianwj.mindrobot.item.ItemFrequencyChip;
@@ -33,6 +34,9 @@ public class ClientProxy extends CommonProxy {
         FMLCommonHandler.instance()
             .bus()
             .register(clientHandler);
+
+        // Driving picture noise: a Forge bus HUD listener, it shares the link lifetime with the camera takeover.
+        MinecraftForge.EVENT_BUS.register(new NoiseOverlay());
     }
 
     @Override

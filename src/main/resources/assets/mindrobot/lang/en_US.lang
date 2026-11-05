@@ -1,4 +1,7 @@
-item.remote_helmet.name=Remote Control Helmet
+item.remote_helmet.name=Brain-Computer Helmet
+item.remote_helmet.mk1.name=Brain-Computer Helmet MKI
+item.remote_helmet.mk2.name=Brain-Computer Helmet MKII
+item.remote_helmet.mk3.name=Brain-Computer Helmet MKIII
 item.frequency_chip.name=Frequency Chip
 
 tooltip.mindrobot.helmet.unpaired=No configured frequency chip installed
