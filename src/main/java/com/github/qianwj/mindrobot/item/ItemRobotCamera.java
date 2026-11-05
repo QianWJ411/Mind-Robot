@@ -84,7 +84,6 @@ public class ItemRobotCamera extends Item {
         String key = type == CameraType.THERMAL ? "tooltip.mindrobot.camera.thermal"
             : "tooltip.mindrobot.camera.normal";
         tooltip.add(EnumChatFormatting.DARK_GRAY + StatCollector.translateToLocal(key));
-        tooltip.add(
-            EnumChatFormatting.DARK_GRAY + StatCollector.translateToLocal("tooltip.mindrobot.camera.hint"));
+        tooltip.add(EnumChatFormatting.DARK_GRAY + StatCollector.translateToLocal("tooltip.mindrobot.camera.hint"));
     }
 }

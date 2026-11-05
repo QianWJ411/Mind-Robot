@@ -30,7 +30,6 @@ public class ItemRobotBackpack extends Item {
 
     @Override
     public void addInformation(ItemStack stack, EntityPlayer player, List<String> tooltip, boolean advanced) {
-        tooltip.add(
-            EnumChatFormatting.DARK_GRAY + StatCollector.translateToLocal("tooltip.mindrobot.backpack.hint"));
+        tooltip.add(EnumChatFormatting.DARK_GRAY + StatCollector.translateToLocal("tooltip.mindrobot.backpack.hint"));
     }
 }
