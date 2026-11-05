@@ -20,9 +20,11 @@ import com.github.qianwj.mindrobot.inventory.RobotInventory;
  * the recesses, so the two never drift apart.
  * <p>
  * <b>Battery cells (R41).</b> The body is the container, the box only unlocks cells: the container adds exactly
- * {@link EntityRobot#getBatteryCellCount()} cell slots, which is 0 without a box and 1..4 with a 1x..4x box.
- * When the box leaves the slot, every cell it covered is handed back to the player - into the inventory when
- * there is room, onto the ground otherwise - so a box swap can never destroy a battery.
+ * {@link EntityRobot#getBatteryCellCount()} cell slots, which is 0 without a box and otherwise the cell count of
+ * the GregTech battery buffer that is installed. The cells are laid out four per column, so a buffer bigger than
+ * the documented four only widens the grid instead of pushing cells out of the panel. When the box leaves the
+ * slot, every cell it covered is handed back to the player - into the inventory when there is room, onto the
+ * ground otherwise - so a box swap can never destroy a battery.
  * <p>
  * <b>Two audiences.</b> The server builds this container from the real inventory, the client from the entity it
  * tracks; item stacks are not synced for an entity inventory, only for the slots of an open container, so the
@@ -51,6 +53,12 @@ public class ContainerRobot extends Container {
     private static final int CAMERA_Y = 62;
     private static final int BACKPACK_PART_Y = 84;
     private static final int BATTERY_CELL_Y = 106;
+    /**
+     * Cells per column of the battery cell grid. Four of them fit next to the machine slots without leaving the
+     * panel, which is the four cell slots the design documents; a bigger GregTech buffer continues in another
+     * column to the right and the screen widens by one column per extra group instead of drawing off the panel.
+     */
+    private static final int BATTERY_CELL_ROWS = 4;
     private static final int PLAYER_GRID_FIRST_INVENTORY_SLOT = 9;
     private static final int PLAYER_GRID_ROWS = 3;
     private static final int PLAYER_GRID_Y = 164;
@@ -71,6 +79,8 @@ public class ContainerRobot extends Container {
     private final int[] containerIndexOfRobotSlot = new int[RobotInventory.SLOT_COUNT];
     /** First container slot of the player inventory. */
     private int firstPlayerSlot;
+    /** Columns of battery cells this layout shows, 0 without a box; the screen grows by the extra ones. */
+    private int batteryCellColumns;
 
     /** @param robot the robot whose storage is shown; {@code null} only when no entity could be resolved */
     public ContainerRobot(EntityPlayer player, EntityRobot robot) {
@@ -129,10 +139,22 @@ public class ContainerRobot extends Container {
         int tier = robot == null ? 0 : robot.getBatteryBoxTier();
         for (int cell = 0; cell < cells && cell < RobotInventory.BATTERY_CELL_CAPACITY; ++cell) {
             int index = RobotInventory.BATTERY_CELL_FIRST_SLOT + cell;
-            registerRobotSlot(
-                new BatteryCellSlot(robotInventory, index, SPECIAL_SLOT_X, BATTERY_CELL_Y + cell * SLOT_SIZE, tier),
-                index);
+            int x = SPECIAL_SLOT_X + (cell / BATTERY_CELL_ROWS) * SLOT_SIZE;
+            int y = BATTERY_CELL_Y + (cell % BATTERY_CELL_ROWS) * SLOT_SIZE;
+            registerRobotSlot(new BatteryCellSlot(robotInventory, index, x, y, tier), index);
         }
+        batteryCellColumns = cells <= 0 ? 0
+            : (Math.min(cells, RobotInventory.BATTERY_CELL_CAPACITY) - 1) / BATTERY_CELL_ROWS + 1;
+    }
+
+    /**
+     * Extra battery cell columns this layout shows next to the machine slots, 0 for the usual single column.
+     * <p>
+     * The screen asks for it so a GregTech box that unlocks more than the four documented cells widens the panel
+     * instead of having its cells drawn outside it (R41).
+     */
+    public int getExtraBatteryCellColumns() {
+        return Math.max(0, batteryCellColumns - 1);
     }
 
     /** Adds a robot slot and remembers which container index it got, so the shift-click paths can find it again. */

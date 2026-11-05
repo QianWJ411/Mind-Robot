@@ -76,14 +76,16 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
      */
     private static final int DATA_PART_FLAGS = 20;
     private static final int FLAG_BACKPACK = 1;
-    /** Bits 1..3 of the same byte carry how many battery cells the installed box unlocks (0..4). */
-    private static final int FLAG_BATTERY_SHIFT = 1;
-    private static final int FLAG_BATTERY_MASK = 0x0E;
-    private static final int FLAG_BATTERY_BITS = 0x7;
-    /** Bits 4..6 carry the rated tier of the installed box (0 = no box), so the client can filter cells. */
-    private static final int FLAG_BOX_TIER_SHIFT = 4;
-    private static final int FLAG_BOX_TIER_MASK = 0x70;
-    private static final int FLAG_BOX_TIER_BITS = 0x7;
+    /**
+     * Cell count of the installed battery box (R41), mirrored as a whole integer.
+     * <p>
+     * It used to be packed into spare bits of {@link #DATA_PART_FLAGS}, but the count comes from the GregTech
+     * buffer now and a buffer may hold more than the seven cells three bits can carry, so the count gets a
+     * watchable of its own and no box can silently lose its top cells.
+     */
+    private static final int DATA_BATTERY_CELLS = 21;
+    /** Voltage tier of the installed battery box (0 = no box), so the client can filter cells (R39). */
+    private static final int DATA_BOX_TIER = 22;
 
     /**
      * Channel snapshot of this robot (D5): the public number, or the private name plus password, and the
@@ -107,6 +109,8 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
         // Bypass the overridden no-op on purpose: this is the one place the disguise value is written.
         super.setHealth(DISGUISE_MAX_HEALTH);
         dataWatcher.addObject(DATA_PART_FLAGS, Byte.valueOf((byte) 0));
+        dataWatcher.addObject(DATA_BATTERY_CELLS, Integer.valueOf(0));
+        dataWatcher.addObject(DATA_BOX_TIER, Integer.valueOf(0));
     }
 
     @Override
@@ -153,11 +157,18 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
      * disappear with the box (R14b / R41).
      */
     private void syncPartFlags() {
-        byte flags = (byte) ((robotInventory.isBackpackInstalled() ? FLAG_BACKPACK : 0)
-            | ((robotInventory.getBatteryCellCount() & FLAG_BATTERY_BITS) << FLAG_BATTERY_SHIFT)
-            | ((robotInventory.getBatteryBoxTier() & FLAG_BOX_TIER_BITS) << FLAG_BOX_TIER_SHIFT));
+        byte flags = (byte) (robotInventory.isBackpackInstalled() ? FLAG_BACKPACK : 0);
         if (dataWatcher.getWatchableObjectByte(DATA_PART_FLAGS) != flags) {
             dataWatcher.updateObject(DATA_PART_FLAGS, Byte.valueOf(flags));
+        }
+        syncWatchedInt(DATA_BATTERY_CELLS, robotInventory.getBatteryCellCount());
+        syncWatchedInt(DATA_BOX_TIER, robotInventory.getBatteryBoxTier());
+    }
+
+    /** Publishes an integer only when it changed, so an idle robot does not spam the client with packets. */
+    private void syncWatchedInt(int watchable, int value) {
+        if (dataWatcher.getWatchableObjectInt(watchable) != value) {
+            dataWatcher.updateObject(watchable, Integer.valueOf(value));
         }
     }
 
@@ -174,24 +185,25 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
     }
 
     /**
-     * How many battery cells the installed box unlocks right now (R41): 0 without a box, 1..4 with a 1x..4x
-     * box. The container adds exactly this many cell slots, so the body shows what the box can actually hold.
+     * How many battery cells the installed box unlocks right now (R41): 0 without a box, otherwise exactly the
+     * number the GregTech battery buffer reports. The container adds this many cell slots, so the body shows what
+     * the box can actually hold.
      */
     public int getBatteryCellCount() {
         if (worldObj != null && worldObj.isRemote) {
-            return (dataWatcher.getWatchableObjectByte(DATA_PART_FLAGS) & FLAG_BATTERY_MASK) >> FLAG_BATTERY_SHIFT;
+            return dataWatcher.getWatchableObjectInt(DATA_BATTERY_CELLS);
         }
         return robotInventory.getBatteryCellCount();
     }
 
     /**
-     * Rated tier of the installed box, 0 when there is none. The server reads the box, the client reads the
-     * mirrored bits: the container has to filter cells by this tier, and the client cannot read the stacks of an
+     * Voltage tier of the installed box, 0 when there is none. The server reads the box, the client reads the
+     * mirrored value: the container has to filter cells by this tier, and the client cannot read the stacks of an
      * entity inventory to find it out.
      */
     public int getBatteryBoxTier() {
         if (worldObj != null && worldObj.isRemote) {
-            return (dataWatcher.getWatchableObjectByte(DATA_PART_FLAGS) & FLAG_BOX_TIER_MASK) >> FLAG_BOX_TIER_SHIFT;
+            return dataWatcher.getWatchableObjectInt(DATA_BOX_TIER);
         }
         return robotInventory.getBatteryBoxTier();
     }

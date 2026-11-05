@@ -6,15 +6,18 @@ import net.minecraft.inventory.Slot;
 import net.minecraft.item.ItemStack;
 
 import com.github.qianwj.mindrobot.inventory.RobotInventory;
-import com.github.qianwj.mindrobot.item.ItemRobotBatteryBox;
+import com.github.qianwj.mindrobot.item.GtBatteryBox;
 
 /**
- * The battery box slot of the robot container (R38 / R39 / D16).
+ * The battery box slot of the robot container (R38 / R39 / D16 / D17).
  * <p>
- * The robot only recognises the box, never a bare cell: a loose battery is refused here even though every GT
- * cell implements the IC2 electric item contract. The energy path then runs through the box - the robot asks
- * the box, and the box asks the cells inside it - so pulling the box is the only way to take the power source
- * away from a body. Exactly one box fits, as with every other part slot.
+ * The slot takes a GregTech battery buffer block item - the machine whose Chinese name is "电池箱" - and nothing
+ * else. A bare cell is refused here even though every GT cell implements the IC2 electric item contract: the body
+ * gains its cell slots from the box, so the box is the only thing this slot may hold. Exactly one box fits, as
+ * with every other part slot.
+ * <p>
+ * The box itself is never consumed by the robot and keeps its own inventory: it stays a real GregTech machine in
+ * item form, and pulling it out of the body is the only way to take the power source away (R41).
  */
 public class BatterySlot extends Slot {
 
@@ -26,7 +29,7 @@ public class BatterySlot extends Slot {
 
     @Override
     public boolean isItemValid(ItemStack stack) {
-        return stack != null && stack.getItem() instanceof ItemRobotBatteryBox;
+        return GtBatteryBox.isBatteryBox(stack);
     }
 
     @Override

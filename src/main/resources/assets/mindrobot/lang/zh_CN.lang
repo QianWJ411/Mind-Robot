@@ -7,8 +7,6 @@ item.robot_camera.name=机器人摄像头
 item.robot_camera.normal.name=机器人摄像头
 item.robot_camera.thermal.name=热成像摄像头
 item.robot_backpack.name=机器人背包
-item.robot_battery_box.name=电池箱
-item.robot_battery_box.display=%sx %s 电池箱
 
 tooltip.mindrobot.helmet.unpaired=尚未安装可用的频道芯片
 tooltip.mindrobot.helmet.hint=把头盔拿在手上潜行右键，插入连接芯片
@@ -25,9 +23,6 @@ tooltip.mindrobot.camera.normal=普通光学：驾驶时不提供夜视
 tooltip.mindrobot.camera.thermal=热成像：驾驶时提供夜视
 tooltip.mindrobot.camera.hint=装进机器人容器的摄像头槽，随时可换
 tooltip.mindrobot.backpack.hint=装进背包槽，解锁 54 格背包
-tooltip.mindrobot.battery_box.cells=电池槽位：%s
-tooltip.mindrobot.battery_box.voltage=额定电压：%s
-tooltip.mindrobot.battery_box.hint=装进电池槽；电池本身插在机体上
 
 key.categories.mindrobot=Mind-Robot
 key.mindrobot.radial_menu=打开转轮面板

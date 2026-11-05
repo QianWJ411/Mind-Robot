@@ -11,27 +11,29 @@ import net.minecraft.nbt.NBTTagList;
 
 import com.github.qianwj.mindrobot.entity.EntityRobot;
 import com.github.qianwj.mindrobot.item.CameraType;
+import com.github.qianwj.mindrobot.item.GtBatteryBox;
 import com.github.qianwj.mindrobot.item.ItemFrequencyChip;
 import com.github.qianwj.mindrobot.item.ItemRobotBackpack;
-import com.github.qianwj.mindrobot.item.ItemRobotBatteryBox;
 import com.github.qianwj.mindrobot.item.ItemRobotCamera;
 
 import ic2.api.item.IElectricItem;
 
 /**
  * The item storage of a robot body (R35 / D15): 9 toolbar slots, 54 backpack slots, one chip slot, one battery
- * box slot, one camera slot, one backpack part slot and four battery cells, 71 in total.
+ * box slot, one camera slot, one backpack part slot and the battery cells - 71 slots for the four cell slots the
+ * design documents, more when the installed GregTech battery buffer holds more.
  * <p>
  * <b>Slot layout.</b> 0..8 is the toolbar - the first row of the container, which is what the driver operates
  * while the body inventory is hidden (R10). 9..62 is the backpack, the bulk storage a robot fills on its own
  * (R36); those 54 cells only exist while the backpack part of {@link #BACKPACK_PART_SLOT} is installed (R14b).
  * 63..70 are the machine slots, which are never part of the pickup path: the chip (63), the battery box (64),
- * the camera (65), the backpack part (66) and the four battery cells (67..70).
+ * the camera (65), the backpack part (66) and the battery cells starting at 67.
  * <p>
- * <b>The body is the container (R41).</b> The battery box is not a container of its own: it is a capacity key.
- * The four cell slots below always exist physically, but only the first {@link #getBatteryCellCount()} of them
- * are live - 0 without a box, 1..4 with a 1x..4x box. Cells that fall outside the live range are handed back to
- * the player instead of being swallowed, so removing a box never destroys a battery.
+ * <b>The body is the container (R41).</b> The battery box is a GregTech battery buffer in item form, not a
+ * container of our own: the body itself stores the cells and the box only unlocks them. The cell slots always
+ * exist physically, but only the first {@link #getBatteryCellCount()} of them are live - 0 without a box, then
+ * exactly as many as the buffer holds. Cells that fall outside the live range are handed back to the player
+ * instead of being swallowed, so removing a box never destroys a battery.
  * <p>
  * <b>Isolation (R37).</b> {@link #acceptsStorage(ItemStack)} is the single predicate behind "a part never lands
  * in the toolbar or in the backpack": the slot classes, the shift-click handler and the automatic pickup all
@@ -60,16 +62,23 @@ public class RobotInventory implements IInventory {
     public static final int BACKPACK_END_SLOT = BACKPACK_FIRST_SLOT + BACKPACK_SLOT_COUNT;
     /** Chip slot, only a {@link ItemFrequencyChip} may enter. */
     public static final int CHIP_SLOT = BACKPACK_END_SLOT;
-    /** Battery box slot (R41): the capacity key of the body, only a {@link ItemRobotBatteryBox} may enter. */
+    /** Battery box slot (R41): a GregTech battery buffer in item form, read through {@link GtBatteryBox}. */
     public static final int BATTERY_BOX_SLOT = CHIP_SLOT + 1;
     /** Camera slot (R33): one {@link ItemRobotCamera}, swapped while the robot is parked. */
     public static final int CAMERA_SLOT = BATTERY_BOX_SLOT + 1;
     /** Backpack part slot (R14b): without a part here the 54 backpack cells do not exist at all. */
     public static final int BACKPACK_PART_SLOT = CAMERA_SLOT + 1;
-    /** First of the four physical battery cells (R41); how many of them are live depends on the box. */
+    /** First physical battery cell (R41); how many of them are live depends on the installed box. */
     public static final int BATTERY_CELL_FIRST_SLOT = BACKPACK_PART_SLOT + 1;
-    /** Highest number of cells any box can unlock: the 4x box. */
-    public static final int BATTERY_CELL_CAPACITY = 4;
+    /**
+     * Number of physical cell slots of a body.
+     * <p>
+     * It is not a constant of ours: it is the biggest cell count GregTech actually ships (at least the four slots
+     * the design documents), so a GregTech build or add-on with a bigger battery buffer is followed without a
+     * source change here, and the check in {@link #getBatteryCellCount()} only guards against a box that is bigger
+     * than the whole storage (R41).
+     */
+    public static final int BATTERY_CELL_CAPACITY = GtBatteryBox.getMaxSlotCount();
     public static final int BATTERY_CELL_END_SLOT = BATTERY_CELL_FIRST_SLOT + BATTERY_CELL_CAPACITY;
     public static final int SLOT_COUNT = BATTERY_CELL_END_SLOT;
 
@@ -101,7 +110,7 @@ public class RobotInventory implements IInventory {
             return false;
         }
         return !(stack.getItem() instanceof ItemFrequencyChip) && !(stack.getItem() instanceof IElectricItem)
-            && !(stack.getItem() instanceof ItemRobotBatteryBox)
+            && !GtBatteryBox.isBatteryBox(stack)
             && !(stack.getItem() instanceof ItemRobotCamera)
             && !(stack.getItem() instanceof ItemRobotBackpack);
     }
@@ -119,7 +128,10 @@ public class RobotInventory implements IInventory {
         return slots[CHIP_SLOT];
     }
 
-    /** The installed battery box, or {@code null}. The body takes its energy from here only (R39). */
+    /**
+     * The installed battery box (a GregTech battery buffer block item), or {@code null}. The box decides how many
+     * cells the body has and which of them fit; the cells themselves sit in the body (R39 / R41).
+     */
     public ItemStack getBattery() {
         return slots[BATTERY_BOX_SLOT];
     }
@@ -150,14 +162,13 @@ public class RobotInventory implements IInventory {
     }
 
     /**
-     * How many of the four battery cells are live right now (R41): 0 without a box, 1..4 with a box of that
-     * size. This is the number the container uses to decide how many cell slots to add, so the cells a body
-     * shows always match the box it carries.
+     * How many battery cells are live right now (R41): 0 without a box, otherwise the cell count the GregTech
+     * battery buffer reports. This is the number the container uses to decide how many cell slots to add, so the
+     * cells a body shows always match the box it carries.
      */
     public int getBatteryCellCount() {
-        ItemStack box = slots[BATTERY_BOX_SLOT];
-        return box != null && box.getItem() instanceof ItemRobotBatteryBox ? ItemRobotBatteryBox.getCellCapacity(box)
-            : 0;
+        int unlocked = GtBatteryBox.getSlotCount(slots[BATTERY_BOX_SLOT]);
+        return Math.min(unlocked, BATTERY_CELL_CAPACITY);
     }
 
     /** The cell of the given index, 0..{@link #BATTERY_CELL_CAPACITY}-1, or {@code null}. */
@@ -168,14 +179,12 @@ public class RobotInventory implements IInventory {
         return slots[BATTERY_CELL_FIRST_SLOT + cell];
     }
 
-    /** Rated tier of the installed box, or 0 when no box is installed (R39). */
+    /** Voltage tier of the installed box, or 0 when no box is installed (R39). */
     public int getBatteryBoxTier() {
-        ItemStack box = slots[BATTERY_BOX_SLOT];
-        return box != null && box.getItem() instanceof ItemRobotBatteryBox ? ItemRobotBatteryBox.getVoltage(box)
-            .getTier() : 0;
+        return GtBatteryBox.getTier(slots[BATTERY_BOX_SLOT]);
     }
 
-    /** True when the slot index is one of the four physical battery cells. */
+    /** True when the slot index is one of the physical battery cells. */
     public static boolean isBatteryCellSlot(int index) {
         return index >= BATTERY_CELL_FIRST_SLOT && index < BATTERY_CELL_END_SLOT;
     }
@@ -497,7 +506,7 @@ public class RobotInventory implements IInventory {
             return stack.getItem() instanceof ItemFrequencyChip;
         }
         if (index == BATTERY_BOX_SLOT) {
-            return stack.getItem() instanceof ItemRobotBatteryBox;
+            return GtBatteryBox.isBatteryBox(stack);
         }
         if (index == CAMERA_SLOT) {
             return stack.getItem() instanceof ItemRobotCamera;
@@ -506,7 +515,7 @@ public class RobotInventory implements IInventory {
             return stack.getItem() instanceof ItemRobotBackpack;
         }
         if (isBatteryCellSlot(index)) {
-            return isActiveBatteryCell(index) && ItemRobotBatteryBox.isValidBattery(getBattery(), stack);
+            return isActiveBatteryCell(index) && GtBatteryBox.isValidCell(getBattery(), stack);
         }
         if (isBackpackCell(index) && !isBackpackInstalled()) {
             return false;

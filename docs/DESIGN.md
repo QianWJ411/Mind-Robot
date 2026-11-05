@@ -222,7 +222,7 @@ R6/R7 是核心张力：遥控本身不强，代价是身体无人看守。任�
 |---|---|
 | 存储 | `EntityRobot` 持有一个 `IInventory`（65 格：9 工具栏 + 54 背包 + 芯片 + 电池），整体存进实体 NBT；实体被摧毁时按正常掉落逻辑处理（部件与内容物分开掉） |
 | 打开 | 右键实体 → `openGui(mod, GUI_ID, world, entityId, 0, 0)`，服务端按 entityId 找回实体；**驾驶中不允许打开自己的机器人容器**（与 R10 同源），但别的玩家戴同频道头盔时可以打开未在驾驶的那台 |
-| 槽位 | 三个槽位类：`ToolSlot`（9）、`BackpackSlot`（54）、`ChipSlot`（1，只收 `ItemFrequencyChip`）、`BatterySlot`（1，只收 `IElectricItem`）；工具栏与背包的 `isItemValid` 对芯片与电池返回 false |
+| 槽位 | `ToolSlot`（9）、`BackpackSlot`（54）、`BackpackPartSlot`（1，背包零件）、`ChipSlot`（1，只收 `ItemFrequencyChip`）、`CameraSlot`（1，只收摄像头）、`BatterySlot`（1，只收 GT 电池箱方块物品）、`BatteryCellSlot`（N 个，按电池箱 `mBatteryCount` 动态添加，只收 `IElectricItem`）；工具栏与背包对所有特殊零件返回 false |
 | 自动拾取 | 在机器人 tick 里按 AABB 吸附附近物品实体，先背包后工具栏；**永不**尝试芯片/电池槽 |
 | 界面 | `GuiContainer` 高度按 65 格排布（工具栏一行 + 6 行背包 + 右侧两个特殊槽 + 玩家背包），布局复用现有 `GuiBrainHelmet` 的 drawRect 风格，不引新贴图 |
 
@@ -231,7 +231,8 @@ R6/R7 是核心张力：遥控本身不强，代价是身体无人看守。任�
 ### D16 · GT5U 依赖（R38）
 - 坐标已核实：`com.github.GTNewHorizons:GT5-Unofficial`（GTNH maven 已在 `settings.gradle.kts` 的 pluginManagement/仓库中配置），当前 release `5.09.55.0`，用 `:dev` classifier。
 - `dependencies.gradle` 加 `compileOnly "com.github.GTNewHorizons:GT5-Unofficial:5.09.55.0:dev"`，**不进产物**。
-- 电池判定不直接引用 GT5U 具体类，而用 IC2 的 `ic2.api.item.IElectricItem`（GT5U 电池都实现该接口，这也是 GT 机器电池槽的通行契约）；这样 GT5U 内部类重构不会打断我们。
+- **引用 GT5U 的具体类是被允许的**，因为 GT5U 是本模组的硬前置（R38）。但集中到**唯一一处** `item/GtBatteryBox.java`：`ItemMachines` 判定 + `GregTechAPI.METATILEENTITIES[damage]` + `MTEBasicBatteryBuffer` 类型检查都在这里，其它代码只问它"这是不是电池箱/几格/什么等级"。这样 GT5U 改名或重构时只需改一个文件。
+- 电池本身仍用 IC2 的 `ic2.api.item.IElectricItem` 判定与取电（所有 GT 电池都实现它）。
 - `@Mod(dependencies = "required-after:gregtech")`：GT5U 是前置，缺失时模组直接拒绝加载比半残运行更好。
 
 ### D17 · 两阶段构建与完成度（R14/R14b/R33/R39）

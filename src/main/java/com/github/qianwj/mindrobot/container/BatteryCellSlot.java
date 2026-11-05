@@ -6,18 +6,19 @@ import net.minecraft.inventory.Slot;
 import net.minecraft.item.ItemStack;
 
 import com.github.qianwj.mindrobot.inventory.RobotInventory;
-import com.github.qianwj.mindrobot.item.BatteryBoxSpec;
+import com.github.qianwj.mindrobot.item.GtBatteryBox;
 
 import ic2.api.item.IElectricItem;
 
 /**
  * One battery cell of the robot container (R41).
  * <p>
- * The cells are part of the body, not of the box: the container adds one slot per cell the installed box
- * unlocks, so a 1x box shows a single cell slot and a 4x box shows four. A slot that the box no longer covers is
- * not added at all, and the inventory refuses a write into it even if a stale window still shows it.
+ * The cells are part of the body, not of the box: the container adds one slot per cell the installed GregTech
+ * battery buffer unlocks, so a 1x buffer shows a single cell slot and a 4x buffer shows four. A slot that the box
+ * no longer covers is not added at all, and the inventory refuses a write into it even if a stale window still
+ * shows it.
  * <p>
- * The slot filters by the rated tier of the box, and it does so with a value handed in by the container rather
+ * The slot filters by the voltage tier of the box, and it does so with a value handed in by the container rather
  * than by reading the box slot: the client side of a container never sees the stacks of an entity inventory, so
  * a check against the live inventory would refuse every cell there and the click would never reach the server.
  */
@@ -39,7 +40,7 @@ public class BatteryCellSlot extends Slot {
             return false;
         }
         int tier = ((IElectricItem) stack.getItem()).getTier(stack);
-        return BatteryBoxSpec.fits(tier, boxTier);
+        return GtBatteryBox.fits(tier, boxTier);
     }
 
     @Override

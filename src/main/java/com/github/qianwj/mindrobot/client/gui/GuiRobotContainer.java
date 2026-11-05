@@ -34,7 +34,9 @@ public class GuiRobotContainer extends GuiContainer {
 
     public GuiRobotContainer(ContainerRobot container) {
         super(container);
-        this.xSize = PANEL_WIDTH;
+        // A battery buffer with more cells than the documented four adds a cell column, so the panel follows the
+        // container instead of cutting the extra cells off at its right edge (R41).
+        this.xSize = PANEL_WIDTH + container.getExtraBatteryCellColumns() * SLOT_BACKGROUND;
         this.ySize = PANEL_HEIGHT;
     }
 
