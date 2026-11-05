@@ -151,7 +151,10 @@ public class ItemFrequencyChip extends Item {
             return;
         }
         ChannelData previous = ItemRemoteHelmet.getChannelData(helmet);
-        ItemRemoteHelmet.setChannelData(helmet, chip);
+        // The owner follows the holder (R22): installing refreshes the owner to the player performing it, so a
+        // stolen chip cannot drive a private robot that belongs to somebody else.
+        ItemRemoteHelmet
+            .setChannelData(helmet, new ChannelData(chip.getChannel(), chip.getMode(), player.getUniqueID()));
         player.inventory.decrStackSize(player.inventory.currentItem, 1);
         syncHeldItem(player);
         if (previous != null) {

@@ -164,7 +164,7 @@ public final class RobotLinkManager {
             return;
         }
 
-        RobotLink link = new RobotLink(player, robot.getUniqueID());
+        RobotLink link = new RobotLink(player, robot.getUniqueID(), robot.posX, robot.posY, robot.posZ);
         LINKS_BY_PLAYER.put(player.getUniqueID(), link);
         LINKS_BY_ROBOT.put(robot.getUniqueID(), link);
         RobotChunkLoader.force(player.getUniqueID(), robot);
@@ -222,11 +222,26 @@ public final class RobotLinkManager {
             return;
         }
 
+        // Cross dimension control is not supported yet: the client cannot follow a robot of another world.
+        if (player.dimension != link.getDimensionId()) {
+            disconnect(player, DisconnectReason.DIMENSION_CHANGE);
+            return;
+        }
+
         EntityRobot robot = findRobot(player.worldObj, link.getRobotId());
-        if (robot == null || robot.isDead) {
+        if (robot == null) {
+            // An unloaded chunk is not a destroyed robot (R24): pull the last known chunk back and keep the
+            // link open. The drive resumes as soon as the entity is loaded again.
+            RobotChunkLoader
+                .forceAt(player.getUniqueID(), player.worldObj, link.getRobotChunkX(), link.getRobotChunkZ());
+            pinToAnchor(player, link);
+            return;
+        }
+        if (robot.isDead) {
             disconnect(player, DisconnectReason.ROBOT_DESTROYED);
             return;
         }
+        link.updateRobotPosition(robot.posX, robot.posY, robot.posZ);
 
         // The ticket follows the robot: crossing a chunk border forces the new chunk and releases the old one.
         RobotChunkLoader.tick(player.getUniqueID(), robot);

@@ -3,12 +3,17 @@ package com.github.qianwj.mindrobot.link;
 import java.util.UUID;
 
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.util.MathHelper;
 
 /**
  * One active player to robot connection.
  * <p>
  * The anchor is the spot the player body entered from (R5); the body is pinned there for the whole
  * connection so piston pushes, water flow and explosions cannot move it (design decision D3).
+ * <p>
+ * The last known robot position is tracked as well: when the robot entity is missing from the loaded entity
+ * list because its chunk was unloaded, that position is what pulls the chunk back (R24) instead of treating
+ * the disappearance as a destroyed robot.
  */
 public final class RobotLink {
 
@@ -21,7 +26,11 @@ public final class RobotLink {
     private final float anchorYaw;
     private final float anchorPitch;
 
-    RobotLink(EntityPlayer player, UUID robotId) {
+    private double robotX;
+    private double robotY;
+    private double robotZ;
+
+    RobotLink(EntityPlayer player, UUID robotId, double robotX, double robotY, double robotZ) {
         this.playerId = player.getUniqueID();
         this.robotId = robotId;
         this.dimensionId = player.dimension;
@@ -30,6 +39,14 @@ public final class RobotLink {
         this.anchorZ = player.posZ;
         this.anchorYaw = player.rotationYaw;
         this.anchorPitch = player.rotationPitch;
+        updateRobotPosition(robotX, robotY, robotZ);
+    }
+
+    /** Records where the robot was last seen, so an unloaded chunk can be pulled back at that spot. */
+    void updateRobotPosition(double x, double y, double z) {
+        this.robotX = x;
+        this.robotY = y;
+        this.robotZ = z;
     }
 
     public UUID getPlayerId() {
@@ -62,5 +79,13 @@ public final class RobotLink {
 
     public float getAnchorPitch() {
         return anchorPitch;
+    }
+
+    public int getRobotChunkX() {
+        return MathHelper.floor_double(robotX) >> 4;
+    }
+
+    public int getRobotChunkZ() {
+        return MathHelper.floor_double(robotZ) >> 4;
     }
 }

@@ -29,6 +29,10 @@ import cpw.mods.fml.common.ModContainer;
  * When the robot changes world the ticket of the old world is released first and a new ticket is requested in
  * the new world, because a ticket is bound to a single {@link World} instance.
  * <p>
+ * A chunk can also be forced at explicit coordinates: when the robot entity is missing from the loaded entity
+ * list (its chunk was unloaded anyway, for instance after a ticket failure or a world hiccup) the link is kept
+ * alive (R24) and the last known chunk is pulled back in, which reloads the entity and resumes the drive.
+ * <p>
  * Every end path funnels through {@link RobotLinkManager#disconnect}, which always calls
  * {@link #release(UUID)}; a leaked ticket would keep forcing a chunk until the world is reloaded.
  */
@@ -80,12 +84,26 @@ public final class RobotChunkLoader {
      * thrown: a missing ticket must not take the connection down with it.
      */
     public static void force(UUID playerId, EntityRobot robot) {
-        safeEnsureTicket(playerId, robot);
+        if (robot == null || !(robot.worldObj instanceof WorldServer)) {
+            return;
+        }
+        safeEnsureTicket(playerId, robot.worldObj, chunkOf(robot));
     }
 
     /** Per tick follow-up: forces the chunk the robot moved into and releases the one it left. */
     public static void tick(UUID playerId, EntityRobot robot) {
-        safeEnsureTicket(playerId, robot);
+        force(playerId, robot);
+    }
+
+    /**
+     * Forces an explicit chunk, used to pull back a robot whose chunk is not loaded (R24). This is not a
+     * destruction: the link stays open and the drive resumes once the entity is back in the world.
+     */
+    public static void forceAt(UUID playerId, World world, int chunkX, int chunkZ) {
+        if (!(world instanceof WorldServer)) {
+            return;
+        }
+        safeEnsureTicket(playerId, world, new ChunkCoordIntPair(chunkX, chunkZ));
     }
 
     /**
@@ -108,9 +126,9 @@ public final class RobotChunkLoader {
         return playerId != null && TICKETS.containsKey(playerId);
     }
 
-    private static void safeEnsureTicket(UUID playerId, EntityRobot robot) {
+    private static void safeEnsureTicket(UUID playerId, World world, ChunkCoordIntPair target) {
         try {
-            ensureTicket(playerId, robot);
+            ensureTicket(playerId, world, target);
         } catch (RuntimeException e) {
             // ForgeChunkManager throws when its world bookkeeping is gone (world unload race). The link itself
             // must survive that; the next tick retries.
@@ -118,11 +136,10 @@ public final class RobotChunkLoader {
         }
     }
 
-    private static void ensureTicket(UUID playerId, EntityRobot robot) {
-        if (playerId == null || robot == null) {
+    private static void ensureTicket(UUID playerId, World world, ChunkCoordIntPair target) {
+        if (playerId == null || world == null || target == null) {
             return;
         }
-        World world = robot.worldObj;
         if (!(world instanceof WorldServer)) {
             return;
         }
@@ -150,7 +167,6 @@ public final class RobotChunkLoader {
             TICKETS.put(playerId, ticket);
         }
 
-        ChunkCoordIntPair target = chunkOf(robot);
         ChunkCoordIntPair current = FORCED_CHUNKS.get(playerId);
         if (target.equals(current)) {
             return;
