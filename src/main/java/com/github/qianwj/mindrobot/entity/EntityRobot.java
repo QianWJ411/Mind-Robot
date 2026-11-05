@@ -11,6 +11,7 @@ import net.minecraft.world.World;
 import com.github.qianwj.mindrobot.api.IRobotCore;
 import com.github.qianwj.mindrobot.damage.RobotDamage;
 import com.github.qianwj.mindrobot.link.ChannelData;
+import com.github.qianwj.mindrobot.link.LastKnownPosition;
 import com.github.qianwj.mindrobot.link.RobotLinkManager;
 
 /**
@@ -27,6 +28,7 @@ import com.github.qianwj.mindrobot.link.RobotLinkManager;
 public class EntityRobot extends EntityLivingBase implements IRobotCore {
 
     private static final String NBT_STRUCTURAL_INTEGRITY = "StructuralIntegrity";
+    private static final String NBT_LAST_LINK_POSITION = "LastLinkPosition";
 
     /** Display only health value. Never used as durability. */
     private static final float DISGUISE_MAX_HEALTH = 20.0F;
@@ -43,6 +45,8 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
      * configured it. {@code null} until an assembly table (P3) or {@code /mindrobot spawn} assigns one.
      */
     private ChannelData channelData;
+    /** Last position of a finished link, mirrored with the helmet side (R27). */
+    private LastKnownPosition lastLinkPosition;
     /** Real durability of the chassis. */
     private int structuralIntegrity = DEFAULT_MAX_STRUCTURAL_INTEGRITY;
 
@@ -175,12 +179,26 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
         this.channelData = channelData;
     }
 
+    /** Where the robot stood when the last link ended, kept on the machine side of the pairing (R27). */
+    public LastKnownPosition getLastLinkPosition() {
+        return lastLinkPosition;
+    }
+
+    public void setLastLinkPosition(LastKnownPosition lastLinkPosition) {
+        this.lastLinkPosition = lastLinkPosition;
+    }
+
     @Override
     public void writeEntityToNBT(NBTTagCompound tag) {
         super.writeEntityToNBT(tag);
         tag.setInteger(NBT_STRUCTURAL_INTEGRITY, structuralIntegrity);
         if (channelData != null) {
             channelData.writeToNBT(tag);
+        }
+        if (lastLinkPosition != null) {
+            NBTTagCompound positionTag = new NBTTagCompound();
+            lastLinkPosition.writeToNBT(positionTag);
+            tag.setTag(NBT_LAST_LINK_POSITION, positionTag);
         }
     }
 
@@ -191,5 +209,8 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
             ? MathHelper.clamp_int(tag.getInteger(NBT_STRUCTURAL_INTEGRITY), 1, getMaxStructuralIntegrity())
             : getMaxStructuralIntegrity();
         channelData = ChannelData.readFromNBT(tag);
+        lastLinkPosition = tag.hasKey(NBT_LAST_LINK_POSITION)
+            ? LastKnownPosition.readFromNBT(tag.getCompoundTag(NBT_LAST_LINK_POSITION))
+            : null;
     }
 }

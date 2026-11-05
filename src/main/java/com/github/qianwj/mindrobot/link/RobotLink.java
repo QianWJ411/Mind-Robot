@@ -88,4 +88,16 @@ public final class RobotLink {
     public int getRobotChunkZ() {
         return MathHelper.floor_double(robotZ) >> 4;
     }
+
+    public double getRobotX() {
+        return robotX;
+    }
+
+    public double getRobotY() {
+        return robotY;
+    }
+
+    public double getRobotZ() {
+        return robotZ;
+    }
 }

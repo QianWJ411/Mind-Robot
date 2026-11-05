@@ -35,6 +35,7 @@
 | R24 | 机器人所在区块**卸载不判定为损毁**：连接保持，按最后已知位置把区块重新拉回来，实体加载后继续驾驶。 |
 | R25 | 频道被占用时**先到先得**：后来者收到"频道被占用"，既不抢占也不排队。 |
 | R26 | 机器人没有芯片或频道未设置时**不可连接**。 |
+| R27 | 每次断开（任何原因）都把机器人**最后位置**写入**双方**：头盔里的芯片快照与机器人本体各存一份；重连时若机器人所在区块未加载，用头盔记录的坐标把区块唤醒并重试接入。 |
 
 R6/R7 是核心张力：遥控本身不强，代价是身体无人看守。任何"顺手让本体无敌"的实现都违背设计意图。
 
@@ -86,8 +87,7 @@ R6/R7 是核心张力：遥控本身不强，代价是身体无人看守。任�
 
 **为什么不用 UUID 绑定**：频道是"可被玩家操作、可被分享、可被抢占"的一等公民，玩法上能做出公共机器人平台、私人载具、频道被扫号的对抗；UUID 绑定只能一对一，且玩家无法在游戏内理解自己的配对状态。
 
-### D10 · 强制加载走 ForgeChunkManager
-已核对 1.7.10 的 API 存在：`ForgeChunkManager.requestTicket(Object mod, World world, Type type)`、`forceChunk(Ticket, ChunkCoordIntPair)`、`unforceChunk(...)`、`releaseTicket(Ticket)`。
+### D10 · 强制加载走 ForgeChunkManager已核对 1.7.10 的 API 存在：`ForgeChunkManager.requestTicket(Object mod, World world, Type type)`、`forceChunk(Ticket, ChunkCoordIntPair)`、`unforceChunk(...)`、`releaseTicket(Ticket)`。
 
 - 连接建立时申请一张 `Type.NORMAL` ticket；机器人每跨区块就 `forceChunk` 新区块 + `unforceChunk` 旧区块（ticket 位置跟着走，不是无限扩大加载范围）。
 - 断开（`RobotLinkManager.disconnect` 的任意原因）必须 `releaseTicket`，否则 ticket 泄漏会永久占用区块加载。
@@ -151,6 +151,18 @@ R6/R7 是核心张力：遥控本身不强，代价是身体无人看守。任�
 | 其它 | ×1 | 普通结构伤害 |
 
 注意：1.7.10 的 `DamageSource` 只有 `inWall`/`drown`/`fall`/`outOfWorld`/`generic`/`magic`/`anvil`/`fallingBlock`，**没有 `cramming`**。"生物互相挤压造成伤害"是 1.8 之后才有的机制；要实现那种"被一群怪挤爆"的规则得自己写（重叠实体数持续超过阈值 N tick 后扣耐久），属于新增机制，见第 6 节 Q5。
+
+### D11 · 最后位置双写（R27）
+"最后位置"和频道数据分开存，因为频道是配对键（很少变），位置每次断开都要重写。
+
+| 载体 | NBT | 写入时机 | 用途 |
+|---|---|---|---|
+| 头盔物品 | 平铺键 `lastX/lastY/lastZ/lastDim` | `RobotLinkManager.disconnect` 时 | 玩家自己带着这条记录；tooltip 直接显示坐标与维度 |
+| 机器人实体 | 子标签 `LastLinkPosition` | 同上（能找到实体时） | 头盔丢失/被换掉后，机器仍记着自己被断开的位置 |
+
+重连流程：`requestEnter` 找不到已加载的同频机器人时，读头盔里的最后位置 → 维度一致就 `RobotChunkLoader.forceAt` 把那个区块拉起来 → 挂一个 60 tick 的重试（`PendingEnter`），期间每 tick 重试查找；找到就正常走完 D5 校验并接入，超时才报"没有可用机器人"。
+
+这条让"区块卸载不判损毁"真正闭环：跨过服务器重启、玩家下线再上线，只要机器人还在原处，玩家戴回头盔就能把它唤醒，而不是被当成损毁。
 
 ---
 

@@ -12,6 +12,7 @@ import net.minecraft.util.StatCollector;
 
 import com.github.qianwj.mindrobot.MindRobot;
 import com.github.qianwj.mindrobot.link.ChannelData;
+import com.github.qianwj.mindrobot.link.LastKnownPosition;
 
 /**
  * Remote control helmet. A head slot armor piece that stores a snapshot of the frequency channel it is
@@ -52,6 +53,43 @@ public class ItemRemoteHelmet extends ItemArmor {
         tooltip.add(
             EnumChatFormatting.DARK_GRAY + StatCollector.translateToLocal(
                 channel.isPrivate() ? "tooltip.mindrobot.mode.private" : "tooltip.mindrobot.mode.public"));
+        LastKnownPosition lastKnown = getLastKnownPosition(stack);
+        if (lastKnown != null) {
+            tooltip.add(
+                EnumChatFormatting.DARK_GRAY + StatCollector.translateToLocalFormatted(
+                    "tooltip.mindrobot.helmet.lastpos",
+                    lastKnown.getBlockX(),
+                    lastKnown.getBlockY(),
+                    lastKnown.getBlockZ(),
+                    lastKnown.getDimension()));
+        }
+    }
+
+    /** Where the paired robot was standing when the last link ended (R27), or {@code null} when never recorded. */
+    public static LastKnownPosition getLastKnownPosition(ItemStack stack) {
+        if (stack == null || !stack.hasTagCompound()) {
+            return null;
+        }
+        return LastKnownPosition.readFromNBT(stack.getTagCompound());
+    }
+
+    /** Mirrors the robot position of a finished link into the helmet, so the player keeps the record (R27). */
+    public static void setLastKnownPosition(ItemStack stack, LastKnownPosition position) {
+        if (stack == null) {
+            return;
+        }
+        if (position == null) {
+            if (stack.hasTagCompound()) {
+                LastKnownPosition.removeFromNBT(stack.getTagCompound());
+            }
+            return;
+        }
+        NBTTagCompound tag = stack.getTagCompound();
+        if (tag == null) {
+            tag = new NBTTagCompound();
+            stack.setTagCompound(tag);
+        }
+        position.writeToNBT(tag);
     }
 
     /**

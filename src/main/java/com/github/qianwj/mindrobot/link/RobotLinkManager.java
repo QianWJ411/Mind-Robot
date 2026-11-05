@@ -37,6 +37,9 @@ public final class RobotLinkManager {
     private static final Map<UUID, RobotLink> LINKS_BY_PLAYER = new HashMap<UUID, RobotLink>();
     private static final Map<UUID, RobotLink> LINKS_BY_ROBOT = new HashMap<UUID, RobotLink>();
 
+    /** Connection attempts waiting for a remembered chunk to load (R27). */
+    private static final Map<UUID, PendingEnter> PENDING_ENTERS = new HashMap<UUID, PendingEnter>();
+
     /**
      * Requests arrive on the netty thread, the table is only touched on the server thread,
      * so incoming requests are queued and drained at the start of every server tick.
@@ -45,6 +48,20 @@ public final class RobotLinkManager {
 
     private static final double ANCHOR_EPSILON_SQ = 1.0E-4D;
     private static final float ANCHOR_ROTATION_EPSILON = 0.1F;
+    private static final int WAKE_TIMEOUT_TICKS = 60;
+
+    /** A connection that is being retried while the remembered chunk loads back in (R27). */
+    private static final class PendingEnter {
+
+        private final ChannelData channel;
+        private final LastKnownPosition position;
+        private int ticksLeft = WAKE_TIMEOUT_TICKS;
+
+        private PendingEnter(ChannelData channel, LastKnownPosition position) {
+            this.channel = channel;
+            this.position = position;
+        }
+    }
 
     private RobotLinkManager() {}
 
@@ -65,6 +82,11 @@ public final class RobotLinkManager {
         if (player == null) {
             return;
         }
+        PENDING_ENTERS.remove(player.getUniqueID());
+        RobotLink existing = LINKS_BY_PLAYER.get(player.getUniqueID());
+        if (existing != null) {
+            rememberLastPosition(player, existing);
+        }
         RobotChunkLoader.release(player.getUniqueID());
         RobotLink link = LINKS_BY_PLAYER.remove(player.getUniqueID());
         if (link == null) {
@@ -79,6 +101,31 @@ public final class RobotLinkManager {
             link.getRobotId());
 
         ModNetwork.syncLinkState(player);
+    }
+
+    /**
+     * R27: when a link ends, the robot position is written into both sides of the pairing - the worn helmet
+     * (so the player keeps the record and can wake the machine later) and the robot itself (so the machine
+     * keeps its own coordinate even if the helmet is lost). Falls back to the link's last seen coordinate when
+     * the entity is not loaded.
+     */
+    private static void rememberLastPosition(EntityPlayer player, RobotLink link) {
+        EntityRobot robot = findRobot(player.worldObj, link.getRobotId());
+        LastKnownPosition position;
+        if (robot != null) {
+            position = new LastKnownPosition(robot.posX, robot.posY, robot.posZ, player.dimension);
+            robot.setLastLinkPosition(position);
+        } else {
+            position = new LastKnownPosition(
+                link.getRobotX(),
+                link.getRobotY(),
+                link.getRobotZ(),
+                link.getDimensionId());
+        }
+        ItemStack helmet = player.getCurrentArmor(ItemRemoteHelmet.HEAD_ARMOR_SLOT);
+        if (helmet != null && helmet.getItem() instanceof ItemRemoteHelmet) {
+            ItemRemoteHelmet.setLastKnownPosition(helmet, position);
+        }
     }
 
     /** Queues an enter request coming from a client packet (handled on the server thread). */
@@ -140,10 +187,41 @@ public final class RobotLinkManager {
 
         EntityRobot robot = findRobotByChannel(player.worldObj, helmetChannel, player);
         if (robot == null) {
+            if (scheduleWake(player, helmetStack, helmetChannel)) {
+                return;
+            }
             LinkDenial.NO_ROBOT.send(player, helmetChannel.getChannel());
             return;
         }
+        openLink(player, robot, helmetChannel);
+    }
 
+    /**
+     * R27: no robot is loaded, but the helmet remembers where the machine stood when the last link ended. The
+     * remembered chunk is forced back in and the request is retried for a bounded number of ticks instead of
+     * being refused outright.
+     */
+    private static boolean scheduleWake(EntityPlayerMP player, ItemStack helmetStack, ChannelData helmetChannel) {
+        LastKnownPosition remembered = ItemRemoteHelmet.getLastKnownPosition(helmetStack);
+        if (remembered == null || remembered.getDimension() != player.dimension) {
+            return false;
+        }
+        if (PENDING_ENTERS.containsKey(player.getUniqueID())) {
+            return true;
+        }
+        PENDING_ENTERS.put(player.getUniqueID(), new PendingEnter(helmetChannel, remembered));
+        RobotChunkLoader.forceAt(player.getUniqueID(), player.worldObj, remembered.getChunkX(), remembered.getChunkZ());
+        player.addChatMessage(
+            new ChatComponentTranslation(
+                "chat.mindrobot.link.waking",
+                remembered.getBlockX(),
+                remembered.getBlockY(),
+                remembered.getBlockZ()));
+        return true;
+    }
+
+    /** Opens the link once every D5 rule passed; used both by a direct request and by the wake retry. */
+    private static void openLink(EntityPlayerMP player, EntityRobot robot, ChannelData helmetChannel) {
         // D5 step 2: channels must be identical.
         ChannelData robotChannel = robot.getChannelData();
         if (robotChannel == null || !helmetChannel.matchesChannel(robotChannel)) {
@@ -206,6 +284,10 @@ public final class RobotLinkManager {
      * ticket (R23) and detects every involuntary disconnect reason.
      */
     public static void tickPlayer(EntityPlayerMP player) {
+        if (player == null) {
+            return;
+        }
+        tickPendingEnter(player);
         RobotLink link = LINKS_BY_PLAYER.get(player.getUniqueID());
         if (link == null) {
             return;
@@ -296,6 +378,27 @@ public final class RobotLinkManager {
         }
         EntityRobot robot = findRobot(player.worldObj, link.getRobotId());
         return robot == null ? -1 : robot.getEntityId();
+    }
+
+    /** Retries a remembered channel every tick until the forced chunk loads the robot back in (R27). */
+    private static void tickPendingEnter(EntityPlayerMP player) {
+        PendingEnter pending = PENDING_ENTERS.get(player.getUniqueID());
+        if (pending == null) {
+            return;
+        }
+        EntityRobot robot = findRobotByChannel(player.worldObj, pending.channel, player);
+        if (robot != null) {
+            PENDING_ENTERS.remove(player.getUniqueID());
+            openLink(player, robot, pending.channel);
+            return;
+        }
+        if (--pending.ticksLeft <= 0) {
+            PENDING_ENTERS.remove(player.getUniqueID());
+            LinkDenial.NO_ROBOT.send(player, pending.channel.getChannel());
+            return;
+        }
+        RobotChunkLoader
+            .forceAt(player.getUniqueID(), player.worldObj, pending.position.getChunkX(), pending.position.getChunkZ());
     }
 
     /**
