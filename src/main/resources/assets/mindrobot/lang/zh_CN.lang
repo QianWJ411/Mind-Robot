@@ -1,0 +1,11 @@
+item.remote_helmet.name=遥控头盔
+tooltip.mindrobot.helmet.paired=已与一台机器人配对
+tooltip.mindrobot.helmet.unpaired=尚未与机器人配对
+
+key.categories.mindrobot=Mind-Robot
+key.mindrobot.radial_menu=打开转轮面板
+
+gui.mindrobot.radial.enter_robot=操作机器人
+gui.mindrobot.radial.exit=退出
+gui.mindrobot.radial.empty=当前没有可用选项
+gui.mindrobot.radial.hint=左键点击扇区进行选择

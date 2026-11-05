@@ -1,0 +1,11 @@
+item.remote_helmet.name=Remote Control Helmet
+tooltip.mindrobot.helmet.paired=Paired with a robot
+tooltip.mindrobot.helmet.unpaired=Not paired with a robot
+
+key.categories.mindrobot=Mind-Robot
+key.mindrobot.radial_menu=Open Radial Menu
+
+gui.mindrobot.radial.enter_robot=Operate Robot
+gui.mindrobot.radial.exit=Exit
+gui.mindrobot.radial.empty=No options available
+gui.mindrobot.radial.hint=Left click a sector to choose
