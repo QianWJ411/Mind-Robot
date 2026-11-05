@@ -17,6 +17,7 @@ import com.github.qianwj.mindrobot.api.IRobotCore;
 import com.github.qianwj.mindrobot.container.RobotGuiHandler;
 import com.github.qianwj.mindrobot.damage.RobotDamage;
 import com.github.qianwj.mindrobot.inventory.RobotInventory;
+import com.github.qianwj.mindrobot.item.CameraType;
 import com.github.qianwj.mindrobot.item.ItemFrequencyChip;
 import com.github.qianwj.mindrobot.link.ChannelData;
 import com.github.qianwj.mindrobot.link.RobotLinkManager;
@@ -32,6 +33,12 @@ import com.github.qianwj.mindrobot.link.RobotRegistry;
  * Health is a disguise only: the vanilla health pool never changes and vanilla death handling is never
  * entered, so other mods cannot drain or resurrect the robot through living entity hooks. The real
  * durability is {@link #getStructuralIntegrity()} and is routed through {@link RobotDamage}.
+ * <p>
+ * A fresh body is <b>unfinished</b> (R14 / R14b / D17): the assembly table only produces the chassis, and the
+ * chip, the camera, the backpack part and the battery are installed afterwards through the item container. An
+ * unfinished body can still be right clicked open - that is the only way to finish it - but it is invisible to
+ * both connection paths, cannot be driven and does not pick anything up. {@link #isComplete()} is the single
+ * place that decision comes from.
  */
 public class EntityRobot extends EntityLivingBase implements IRobotCore {
 
@@ -62,6 +69,14 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
     private static final String NBT_INVENTORY = "RobotInventory";
 
     /**
+     * Data watcher slot carrying the part flags. The client builds the very same container as the server, but
+     * item stacks are only synced for slots the open container owns, not for the entity inventory, so the
+     * "backpack part installed" bit - which decides whether the 54 cells exist - has to travel separately.
+     */
+    private static final int DATA_PART_FLAGS = 20;
+    private static final byte FLAG_BACKPACK = 1;
+
+    /**
      * Channel snapshot of this robot (D5): the public number, or the private name plus password, and the
      * public/private mode. It is a cache of what the chip slot currently holds (R21 / R26) - never written from
      * anywhere else - and {@code null} when no chip is installed, which is what makes the machine unreachable.
@@ -82,6 +97,7 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
         setSize(0.6F, 1.8F);
         // Bypass the overridden no-op on purpose: this is the one place the disguise value is written.
         super.setHealth(DISGUISE_MAX_HEALTH);
+        dataWatcher.addObject(DATA_PART_FLAGS, Byte.valueOf((byte) 0));
     }
 
     @Override
@@ -113,10 +129,56 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
         if (worldObj == null || worldObj.isRemote) {
             return;
         }
+        syncPartFlags();
         reportPosition();
         if (ticksExisted % PICKUP_INTERVAL == 0) {
             collectNearbyItems();
         }
+    }
+
+    /**
+     * Keeps the client side container layout in step with the installed parts: a body gains or loses the 54
+     * backpack cells the moment the backpack part is put in or taken out.
+     */
+    private void syncPartFlags() {
+        byte flags = (byte) (robotInventory.isBackpackInstalled() ? FLAG_BACKPACK : 0);
+        if (dataWatcher.getWatchableObjectByte(DATA_PART_FLAGS) != flags) {
+            dataWatcher.updateObject(DATA_PART_FLAGS, Byte.valueOf(flags));
+        }
+    }
+
+    /**
+     * True when the backpack part is installed. The server reads the slot, the client reads the mirrored flag:
+     * the client inventory object is empty by design, because only the slots of an open container carry synced
+     * stacks, so reading it there would report "no backpack" for a finished robot.
+     */
+    public boolean hasBackpackPart() {
+        if (worldObj != null && worldObj.isRemote) {
+            return (dataWatcher.getWatchableObjectByte(DATA_PART_FLAGS) & FLAG_BACKPACK) != 0;
+        }
+        return robotInventory.isBackpackInstalled();
+    }
+
+    /**
+     * The completion gate of R14b / D17, asked by every path that would give an unfinished body a job: the two
+     * connection paths, the drive tick, the automatic pickup and the registry (an unfinished body must not even
+     * keep a wake-up row). The rule itself lives in {@link RobotInventory#isComplete()}.
+     */
+    public boolean isComplete() {
+        return robotInventory.isComplete();
+    }
+
+    /**
+     * Kind of the installed camera, or {@code null} when the camera slot is empty (R33). The night vision of the
+     * driver is derived from this every tick, so a swap takes effect immediately and leaves nothing behind.
+     */
+    public CameraType getCameraType() {
+        return robotInventory.getCameraType();
+    }
+
+    /** True while a thermal camera is installed; the driver then gets night vision (R33). */
+    public boolean hasThermalCamera() {
+        return getCameraType() == CameraType.THERMAL;
     }
 
     /**
@@ -130,6 +192,10 @@ public class EntityRobot extends EntityLivingBase implements IRobotCore {
      */
     private void collectNearbyItems() {
         if (isDead || !isEntityAlive()) {
+            return;
+        }
+        // R14b / D17: an unfinished body has no working storage, so it does not vacuum the ground either.
+        if (!isComplete()) {
             return;
         }
         AxisAlignedBB area = boundingBox.expand(PICKUP_RANGE, PICKUP_RANGE, PICKUP_RANGE);

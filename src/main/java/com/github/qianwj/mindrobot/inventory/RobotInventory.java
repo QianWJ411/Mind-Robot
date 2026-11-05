@@ -7,24 +7,33 @@ import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 
 import com.github.qianwj.mindrobot.entity.EntityRobot;
+import com.github.qianwj.mindrobot.item.CameraType;
 import com.github.qianwj.mindrobot.item.ItemFrequencyChip;
+import com.github.qianwj.mindrobot.item.ItemRobotBackpack;
+import com.github.qianwj.mindrobot.item.ItemRobotCamera;
 
 import ic2.api.item.IElectricItem;
 
 /**
- * The item storage of a robot body (R35 / D15): 9 toolbar slots, 54 backpack slots, one chip slot and one
- * battery box slot, 65 in total.
+ * The item storage of a robot body (R35 / D15): 9 toolbar slots, 54 backpack slots, one chip slot, one battery
+ * slot, one camera slot and one backpack part slot, 67 in total.
  * <p>
  * <b>Slot layout.</b> 0..8 is the toolbar - the first row of the container, which is what the driver operates
  * while the body inventory is hidden (R10). 9..62 is the backpack, the bulk storage a robot fills on its own
- * (R36). 63 is the chip slot and 64 the battery box slot; those two only exist for the screen and for the
- * machine itself, they are never part of the pickup path.
+ * (R36); those 54 cells only exist while the backpack part of {@link #BACKPACK_PART_SLOT} is installed (R14b).
+ * 63 is the chip slot, 64 the battery slot, 65 the camera slot and 66 the backpack part slot; the four special
+ * slots only exist for the screen and for the machine itself, they are never part of the pickup path.
  * <p>
- * <b>Isolation (R37).</b> {@link #acceptsStorage(ItemStack)} is the single predicate behind "a chip or a
- * battery never lands in the toolbar or in the backpack": the slot classes, the shift-click handler and the
- * automatic pickup all call it, so the rule cannot drift apart between the three call sites. The two special
- * slots have the mirrored rule and only accept {@link ItemFrequencyChip} respectively
- * {@link IElectricItem} - the IC2 contract every GregTech battery implements (R38).
+ * <b>Isolation (R37).</b> {@link #acceptsStorage(ItemStack)} is the single predicate behind "a part never lands
+ * in the toolbar or in the backpack": the slot classes, the shift-click handler and the automatic pickup all
+ * call it, so the rule cannot drift apart between the three call sites. The special slots have the mirrored
+ * rule and only accept {@link ItemFrequencyChip}, {@link IElectricItem}, {@link ItemRobotCamera} respectively
+ * {@link ItemRobotBackpack}. The battery slot is the battery box layer of R39: a robot reads its energy from
+ * this slot only and never from a loose battery lying around.
+ * <p>
+ * <b>Completion (R14b / D17).</b> {@link #isComplete()} is the single completion rule: chip, camera, backpack
+ * part and battery all installed. The connection, the pickup and the drive paths ask the robot, and the robot
+ * asks this method, so "unfinished" cannot mean two different things in two places.
  * <p>
  * The whole inventory is stored in the entity compound as a list of {@code {Slot, Item}} entries, so a robot
  * keeps its contents across a save and a chunk unload.
@@ -44,9 +53,13 @@ public class RobotInventory implements IInventory {
     public static final int BACKPACK_END_SLOT = BACKPACK_FIRST_SLOT + BACKPACK_SLOT_COUNT;
     /** Chip slot, only a {@link ItemFrequencyChip} may enter. */
     public static final int CHIP_SLOT = BACKPACK_END_SLOT;
-    /** Battery box slot, only an {@link IElectricItem} may enter. */
+    /** Battery slot, the battery box layer of R39: only an {@link IElectricItem} may enter. */
     public static final int BATTERY_SLOT = CHIP_SLOT + 1;
-    public static final int SLOT_COUNT = BATTERY_SLOT + 1;
+    /** Camera slot (R33): one {@link ItemRobotCamera}, swapped while the robot is parked. */
+    public static final int CAMERA_SLOT = BATTERY_SLOT + 1;
+    /** Backpack part slot (R14b): without a part here the 54 backpack cells do not exist at all. */
+    public static final int BACKPACK_PART_SLOT = CAMERA_SLOT + 1;
+    public static final int SLOT_COUNT = BACKPACK_PART_SLOT + 1;
 
     private static final String NBT_ITEMS = "Items";
     private static final String NBT_SLOT = "Slot";
@@ -65,15 +78,17 @@ public class RobotInventory implements IInventory {
     }
 
     /**
-     * The storage rule of R37: the toolbar and the backpack take anything except a frequency chip and a
-     * battery. Those two belong to their own slots, so a dropped chip or battery is left on the ground for
-     * the player instead of being pulled in by the automatic pickup.
+     * The storage rule of R37: the toolbar and the backpack take anything except a part. A chip, a battery, a
+     * camera and a backpack are parts of their own, so a dropped one is left on the ground for the player
+     * instead of being pulled in by the automatic pickup.
      */
     public static boolean acceptsStorage(ItemStack stack) {
         if (stack == null || stack.getItem() == null) {
             return false;
         }
-        return !(stack.getItem() instanceof ItemFrequencyChip) && !(stack.getItem() instanceof IElectricItem);
+        return !(stack.getItem() instanceof ItemFrequencyChip) && !(stack.getItem() instanceof IElectricItem)
+            && !(stack.getItem() instanceof ItemRobotCamera)
+            && !(stack.getItem() instanceof ItemRobotBackpack);
     }
 
     /** The toolbar stack of the given column, 0..8. */
@@ -94,15 +109,57 @@ public class RobotInventory implements IInventory {
         return slots[BATTERY_SLOT];
     }
 
+    /** The installed camera, or {@code null}. */
+    public ItemStack getCamera() {
+        return slots[CAMERA_SLOT];
+    }
+
+    /** The installed backpack part, or {@code null}. */
+    public ItemStack getBackpackPart() {
+        return slots[BACKPACK_PART_SLOT];
+    }
+
+    /**
+     * The kind of camera that is installed right now.
+     *
+     * @return the camera type, or {@code null} when the slot is empty or holds something else
+     */
+    public CameraType getCameraType() {
+        return CameraType.byItemStack(slots[CAMERA_SLOT]);
+    }
+
+    /** True when the 54 backpack cells are unlocked by an installed backpack part (R14b). */
+    public boolean isBackpackInstalled() {
+        ItemStack part = slots[BACKPACK_PART_SLOT];
+        return part != null && part.getItem() instanceof ItemRobotBackpack;
+    }
+
+    /**
+     * Completion gate of R14b / D17: a body is finished only when the chip, the camera, the backpack part and a
+     * battery are all installed. The battery sits inside the battery box, so the battery slot is the only place
+     * the body reads its energy from (R39).
+     * <p>
+     * This is the one definition of "complete": the connection paths, the pickup and the drive all ask
+     * {@link EntityRobot#isComplete()}, which delegates here, so the body cannot be half finished in one place
+     * and finished in another.
+     */
+    public boolean isComplete() {
+        return getChip() != null && getCamera() != null && isBackpackInstalled() && getBattery() != null;
+    }
+
     /**
      * Inserts a stack the way a robot picks loot up (R36): the backpack first, the toolbar only once the
-     * backpack is full, and never the two special slots.
+     * backpack is full, and never the four special slots. Without an installed backpack part the body has no
+     * storage of its own, so the pickup fails outright (R14b).
      *
      * @param stack the stack that should be stored; its size is reduced by what was stored
      * @return the part that did not fit, or {@code null} when the whole stack was stored
      */
     public ItemStack insertIntoBackpack(ItemStack stack) {
         if (stack == null || stack.stackSize <= 0) {
+            return stack;
+        }
+        if (!isBackpackInstalled()) {
             return stack;
         }
         if (!acceptsStorage(stack)) {
@@ -164,6 +221,11 @@ public class RobotInventory implements IInventory {
     private static boolean isSameStack(ItemStack left, ItemStack right) {
         return left.getItem() == right.getItem() && left.getItemDamage() == right.getItemDamage()
             && ItemStack.areItemStackTagsEqual(left, right);
+    }
+
+    /** True for a backpack cell, which only exists while a backpack part is installed. */
+    private static boolean isBackpackCell(int index) {
+        return index >= BACKPACK_FIRST_SLOT && index < BACKPACK_END_SLOT;
     }
 
     /** Whole-inventory serialisation, used by {@link EntityRobot} from its entity compound. */
@@ -246,6 +308,10 @@ public class RobotInventory implements IInventory {
         if (index < 0 || index >= SLOT_COUNT) {
             return;
         }
+        // A backpack cell is only reachable while the part is installed, whatever a stale window tries to do.
+        if (stack != null && isBackpackCell(index) && !isBackpackInstalled()) {
+            return;
+        }
         slots[index] = stack;
         if (stack != null && stack.stackSize > getInventoryStackLimit()) {
             stack.stackSize = getInventoryStackLimit();
@@ -314,6 +380,15 @@ public class RobotInventory implements IInventory {
         }
         if (index == BATTERY_SLOT) {
             return stack.getItem() instanceof IElectricItem;
+        }
+        if (index == CAMERA_SLOT) {
+            return stack.getItem() instanceof ItemRobotCamera;
+        }
+        if (index == BACKPACK_PART_SLOT) {
+            return stack.getItem() instanceof ItemRobotBackpack;
+        }
+        if (isBackpackCell(index) && !isBackpackInstalled()) {
+            return false;
         }
         return acceptsStorage(stack);
     }
