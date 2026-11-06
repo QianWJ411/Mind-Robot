@@ -7,6 +7,10 @@ item.robot_camera.name=机器人摄像头
 item.robot_camera.normal.name=机器人摄像头
 item.robot_camera.thermal.name=热成像摄像头
 item.robot_backpack.name=机器人背包
+item.robot_part.name=机器人部件
+item.robot_part.arm.name=机械臂
+item.robot_part.leg.name=机械腿
+item.robot_part.core.name=内置核心
 
 tooltip.mindrobot.helmet.unpaired=尚未安装可用的频道芯片
 tooltip.mindrobot.helmet.hint=把头盔拿在手上潜行右键，插入连接芯片
@@ -23,6 +27,8 @@ tooltip.mindrobot.camera.normal=普通光学：驾驶时不提供夜视
 tooltip.mindrobot.camera.thermal=热成像：驾驶时提供夜视
 tooltip.mindrobot.camera.hint=装进机器人容器的摄像头槽，随时可换
 tooltip.mindrobot.backpack.hint=装进背包槽，解锁 54 格背包
+tooltip.mindrobot.part.durability=剩余耐久 %s / %s
+tooltip.mindrobot.part.hint=装进机器人装配台对应的槽位
 
 key.categories.mindrobot=Mind-Robot
 key.mindrobot.radial_menu=打开转轮面板

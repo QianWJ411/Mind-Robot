@@ -7,6 +7,10 @@ item.robot_camera.name=Robot Camera
 item.robot_camera.normal.name=Robot Camera
 item.robot_camera.thermal.name=Thermal Camera
 item.robot_backpack.name=Robot Backpack
+item.robot_part.name=Robot Part
+item.robot_part.arm.name=Mechanical Arm
+item.robot_part.leg.name=Mechanical Leg
+item.robot_part.core.name=Built-in Core
 
 tooltip.mindrobot.helmet.unpaired=No configured frequency chip installed
 tooltip.mindrobot.helmet.hint=Hold the helmet and sneak + right click to insert a frequency chip
@@ -23,6 +27,8 @@ tooltip.mindrobot.camera.normal=Plain optics: no night vision while driving
 tooltip.mindrobot.camera.thermal=Thermal optics: night vision while driving
 tooltip.mindrobot.camera.hint=Install it into the camera slot of the robot container, swap it at any time
 tooltip.mindrobot.backpack.hint=Install it into the backpack slot to unlock the 54 storage cells
+tooltip.mindrobot.part.durability=Durability %s / %s
+tooltip.mindrobot.part.hint=Install it into the matching slot of the robot assembler
 
 key.categories.mindrobot=Mind-Robot
 key.mindrobot.radial_menu=Open Radial Menu

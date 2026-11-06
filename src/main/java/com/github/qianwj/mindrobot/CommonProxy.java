@@ -10,6 +10,7 @@ import com.github.qianwj.mindrobot.event.CommonEventHandler;
 import com.github.qianwj.mindrobot.event.RobotTargetingHandler;
 import com.github.qianwj.mindrobot.link.RobotChunkLoader;
 import com.github.qianwj.mindrobot.registry.ModContent;
+import com.github.qianwj.mindrobot.registry.ModRecipes;
 
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -39,7 +40,11 @@ public class CommonProxy {
     }
 
     // load "Do your mod setup. Build whatever data structures you care about. Register recipes." (Remove if not needed)
-    public void init(FMLInitializationEvent event) {}
+    public void init(FMLInitializationEvent event) {
+        // R14b / R31 / D18: every item exists since preInit, so the crafting manager can be filled here. init is
+        // also early enough that a mod which post-processes recipes in its own postInit still sees ours.
+        ModRecipes.register();
+    }
 
     // postInit "Handle interaction with other mods, complete your setup based on this." (Remove if not needed)
     public void postInit(FMLPostInitializationEvent event) {}

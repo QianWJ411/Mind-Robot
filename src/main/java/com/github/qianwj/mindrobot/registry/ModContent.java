@@ -8,6 +8,7 @@ import com.github.qianwj.mindrobot.item.ItemFrequencyChip;
 import com.github.qianwj.mindrobot.item.ItemRemoteHelmet;
 import com.github.qianwj.mindrobot.item.ItemRobotBackpack;
 import com.github.qianwj.mindrobot.item.ItemRobotCamera;
+import com.github.qianwj.mindrobot.item.ItemRobotPart;
 import com.github.qianwj.mindrobot.network.ModNetwork;
 
 import cpw.mods.fml.common.Loader;
@@ -37,6 +38,8 @@ public final class ModContent {
     public static Item robotCamera;
     /** The backpack part (R14b): unlocks the 54 backpack cells of a body. */
     public static Item robotBackpack;
+    /** The assembly-table part (R14b / R34): arm, leg and core share one item, distinguished by metadata. */
+    public static Item robotPart;
 
     private ModContent() {}
 
@@ -52,6 +55,9 @@ public final class ModContent {
 
         robotBackpack = new ItemRobotBackpack();
         GameRegistry.registerItem(robotBackpack, ItemRobotBackpack.ITEM_NAME);
+
+        robotPart = new ItemRobotPart();
+        GameRegistry.registerItem(robotPart, ItemRobotPart.ITEM_NAME);
 
         EntityRegistry.registerModEntity(
             EntityRobot.class,
